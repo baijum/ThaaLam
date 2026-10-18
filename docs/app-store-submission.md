@@ -68,16 +68,21 @@ The repository includes GitHub Pages–ready pages:
 - `docs/support.md`
 - `docs/_config.yml`
 
-To publish them:
+**Status: Pages is already enabled** (18 October 2026) with source `main` /
+`/docs`, and both pages returned HTTP 200 after the first build:
 
-1. Push this branch to GitHub (`baijum/ThaaLam` is public).
-2. Open **GitHub → Settings → Pages**.
-3. Set **Source** to **Deploy from a branch**, branch **main**, folder **/docs**.
-4. Save. After the first build, use:
-   - Privacy: `https://baijum.github.io/ThaaLam/privacy-policy.html`
-   - Support: `https://baijum.github.io/ThaaLam/support.html`
-5. Paste those URLs into **App Information → Privacy Policy URL** and
-   **Support URL**. A marketing URL is optional.
+- Privacy: `https://baijum.github.io/ThaaLam/privacy-policy.html`
+- Support: `https://baijum.github.io/ThaaLam/support.html`
+
+Paste those URLs into **App Information → Privacy Policy URL** and
+**Support URL**. A marketing URL is optional.
+
+The equivalent GitHub CLI command is:
+
+```bash
+gh api --method POST repos/baijum/ThaaLam/pages \
+  -f 'source[branch]=main' -f 'source[path]=/docs'
+```
 
 If GitHub Pages is not suitable, host the two pages at any stable HTTPS URL and
 use those instead. The URLs must be live before submission.
@@ -284,10 +289,28 @@ The practice log stays on the device. The tap grader uses touch input only.
 ## 11. Remaining blockers
 
 - [ ] Create the App Store Connect app record for `com.baijum.thaalam`.
-- [ ] Publish the privacy policy and support URLs (GitHub Pages or another host).
+- [x] Publish the privacy policy and support URLs (GitHub Pages is live).
 - [ ] Confirm price (free recommended) and availability.
 - [ ] Upload the IPA and complete TestFlight.
 - [ ] Submit for review.
 
-Once the record and URLs exist, the archive and IPA in `build/export/` can be
+Once the app record exists, the archive and IPA in `build/export/` can be
 uploaded without rebuilding. Bump `CFBundleVersion` for every subsequent upload.
+
+## 12. What can be automated
+
+| Task | Tool / API | Status |
+|---|---|---|
+| Enable GitHub Pages | `gh api` | **Done** |
+| Verify pages | `curl` | **Done** (HTTP 200) |
+| Create App Store Connect app record | Apple web UI only | **Cannot be done via public API** |
+| Create App Store Connect API key | Apple web UI (Users and Access) | Needs your Apple account |
+| Upload IPA | Xcode Organizer, Transporter, or `altool` with API key | Ready once the app record exists and a key is available |
+| Submit for review | App Store Connect web UI | Needs your Apple account |
+
+Apple does not expose an App Store Connect API endpoint for creating a new app
+record. The record must be created in the web UI; the public API can then manage
+builds and metadata. If you create an App Store Connect API key with the **App
+Manager** role, place the `.p8` at
+`~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8` and the IPA can be
+validated and uploaded from the command line.
