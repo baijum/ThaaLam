@@ -67,7 +67,34 @@ object SettingsMutations {
         settings.copy(countInBars = bars).normalized()
 
     fun setGapTrainer(settings: MetronomeSettings, playBars: Int, silentBars: Int): MetronomeSettings =
-        settings.copy(gapPlayBars = playBars, gapSilentBars = silentBars).normalized()
+        settings.copy(
+            gapPlayBars = playBars,
+            gapSilentBars = silentBars,
+            gapPattern = emptyList(),
+        ).normalized()
+
+    fun setGapPattern(settings: MetronomeSettings, pattern: List<Boolean>): MetronomeSettings =
+        settings.copy(gapPattern = pattern).normalized()
+
+    /** Swift-friendly pattern mutation: "1,0,1" means play, gap, play. */
+    fun setGapPatternCsv(settings: MetronomeSettings, csv: String): MetronomeSettings {
+        val pattern = csv.split(',')
+            .mapNotNull { it.trim().toIntOrNull() }
+            .map { it != 0 }
+        return settings.copy(gapPattern = pattern).normalized()
+    }
+
+    fun gapPatternCsv(settings: MetronomeSettings): String =
+        settings.gapPattern.joinToString(",") { if (it) "1" else "0" }
+
+    fun setGapFadeBars(settings: MetronomeSettings, bars: Int): MetronomeSettings =
+        settings.copy(gapFadeBars = bars).normalized()
+
+    fun setGapMaxSilentBars(settings: MetronomeSettings, bars: Int): MetronomeSettings =
+        settings.copy(gapMaxSilentBars = bars).normalized()
+
+    fun setGapKeepSam(settings: MetronomeSettings, keep: Boolean): MetronomeSettings =
+        settings.copy(gapKeepSam = keep).normalized()
 
     fun setMuteProbability(settings: MetronomeSettings, probability: Double): MetronomeSettings =
         settings.copy(muteProbability = probability).normalized()
@@ -444,6 +471,11 @@ object PresetFactory {
 /** Tap-tempo factory so Swift does not need every Kotlin default argument. */
 object TapTempoFactory {
     fun create(): TapTempo = TapTempo()
+}
+
+/** Tap grader factory for SwiftUI, which cannot call Kotlin default arguments. */
+object TapGraderFactory {
+    fun create(): TapGrader = TapGrader()
 }
 
 /** Tala metadata and playback labels shared by the Android and iOS UI. */

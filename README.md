@@ -6,9 +6,9 @@ ThaaLam is built with the same technology stack as the sibling Ukulele
 Companion project: Kotlin Multiplatform for the shared domain, Jetpack Compose
 on Android and SwiftUI on iOS. The metronome engine was
 rebuilt around a frame-counting audio clock, then extended with additive meters,
-four-level accents, swing, practice automation, layered polyrhythms and a
-first-class Carnatic / Hindustani tala practice engine with kalam, kalai,
-eduppu and anga gestures.
+four-level accents, swing, layered polyrhythms, a first-class Carnatic /
+Hindustani tala engine with kalam, kalai, eduppu and anga gestures, and a local
+practice log with goals, streaks and a tap-accuracy grader.
 
 <p align="center">
   <img src="docs/screenshots/ios-metronome-dark.png" width="24%" alt="iOS metronome (dark)">
@@ -106,6 +106,31 @@ eduppu and anga gestures.
 - All practice decisions run inside the audio engine's scheduling loop, so gap
   bars and random mutes never disturb the phase clock.
 
+### Practice intelligence
+
+- **Practice log**: every start-to-stop transport run is recorded locally with
+  duration, starting/ending tempo, meter or tala, preset context, layer count,
+  practice modes and tap summary. History is capped at 500 sessions.
+- **Practice tab**: today's minutes and goal progress, a seven-day strip, current
+  streak, all-time total and best tempo per tala or preset.
+- **Goals**: configurable daily and weekly minute targets. Sessions that cross
+  midnight are split between local days, and stats follow the device time zone.
+- **Tap-accuracy grader**: tap along with the main pulse; see signed bias, mean
+  absolute error, early/late counts, a histogram, a rating (Tight → Wide) and a
+  tendency (Rushing / Centred / Dragging). Targets use the engine's host-clock
+  tick time, estimated output latency and a user calibration.
+- **Gap 2.0**: custom play/gap bar patterns, a configurable fade over the last
+  play bars, a maximum-silent-bar repair rule, and an optional soft sam on
+  silent bars so the downbeat still marks the cycle.
+- **Export and privacy**: CSV or JSON through the share sheet, and a clear
+  action that removes only the practice history. No upload and no account.
+
+<p align="center">
+  <img src="docs/screenshots/android-practice.png" width="31%" alt="Android practice goals and week">
+  <img src="docs/screenshots/ios-practice.png" width="31%" alt="iOS practice goals and week">
+  <img src="docs/screenshots/android-practice-tap.png" width="31%" alt="Android tap-accuracy grader">
+</p>
+
 ### Tala engine
 
 The name *ThaaLam* comes from the Tamil word for a rhythmic cycle. Talas are not
@@ -178,7 +203,7 @@ swing, gap, ramp, haptics) works with it.
 
 | Layer | Technology |
 |---|---|
-| Shared domain | Kotlin 2.4.20 Multiplatform (`:shared`), kotlinx.serialization |
+| Shared domain | Kotlin 2.4.20 Multiplatform (`:shared`), kotlinx.serialization, kotlinx-datetime |
 | Android UI | Kotlin, Jetpack Compose (BOM 2026.09.00), Material 3, MVVM + StateFlow |
 | Android audio | `AudioTrack` low-latency stream, real-time procedural synthesis |
 | Android background | Foreground service with media-playback notification |
@@ -201,17 +226,18 @@ ThaaLam/
 │   │   │   ├── MetronomeAudioEngine.kt  AudioTrack frame clock + sequencer
 │   │   │   ├── MetronomeController.kt   app-scoped state, focus, haptics
 │   │   │   └── MetronomeService.kt      foreground playback notification
-│   │   ├── data/                     SharedPreferences settings + presets
+│   │   ├── data/                     SharedPreferences settings, presets + practice log
 │   │   ├── ui/
 │   │   │   ├── components/           beat grid, cards, steppers, chips
-│   │   │   ├── screens/              metronome, talas, presets, settings
+│   │   │   ├── screens/              metronome, talas, practice, presets, settings
 │   │   │   └── theme/                colour, type and slider/chip theming
 │   │   └── viewmodel/MainViewModel.kt
 │   └── src/test/                     (Android host tests can be added here)
 ├── shared/                           Kotlin Multiplatform domain
 │   └── src/commonMain/kotlin/com/baijum/thaalam/
 │       ├── data/                     Meter, Subdivision, BeatKind, LayerSettings,
-│       │                             Tala, MetronomeSettings, MetronomePreset
+│       │                             Tala, MetronomeSettings, MetronomePreset,
+│       │                             PracticeSession, PracticeData
 │       └── domain/
 │           ├── RhythmPattern.kt      one-bar primary click grid
 │           ├── VoicePattern.kt       compiled voice grid for the engines
@@ -221,6 +247,10 @@ ThaaLam/
 │           ├── PracticeLogic.kt      gap / mute / ramp decisions + LCG
 │           ├── TalaLibrary.kt        35 Suladi + Chapu + Hindustani catalogue
 │           ├── TalaApplication.kt    tala → metronome settings compiler
+│           ├── PracticeStats.kt      goals, streaks, local-day splitting
+│           ├── PracticeCodec.kt      practice log JSON/CSV codec
+│           ├── PracticeFactory.kt    settings snapshot → practice session
+│           ├── TapGrader.kt          tap matching and accuracy summaries
 │           ├── TapTempo.kt           rolling tap detector
 │           ├── PresetCodec.kt        shared JSON persistence
 │           ├── MetronomeStateLogic.kt
@@ -231,12 +261,13 @@ ThaaLam/
 │   └── ThaaLam/
 │       ├── Audio/                    AVAudioSourceNode engine, ClickSynth
 │       ├── ViewModels/               MetronomeViewModel
-│       ├── Views/                    metronome, talas, presets, settings
+│       ├── Views/                    metronome, talas, practice, presets, settings
 │       ├── Storage/                  UserDefaults + shared JSON codec
 │       └── Theme.swift
 ├── docs/
 │   ├── screenshots/
 │   ├── architecture.md               engine and data-flow deep dive
+│   ├── microphone-spike.md           gated microphone decision record
 │   └── roadmap.md                    release plan
 ├── CHANGELOG.md
 └── references/                       market and product research reports
@@ -372,9 +403,10 @@ canonical lengths, khali placement and theka lengths.
 ## Testing
 
 ```bash
-./gradlew :shared:jvmTest      # 127 shared tests: meters, layers, patterns,
-                               # talas, kalam/kalai/eduppu, gestures,
-                               # practice logic, tap tempo, presets
+./gradlew :shared:jvmTest      # 156 shared tests: meters, layers, patterns,
+                               # talas, kalam/kalai/eduppu, gestures, gap 2.0,
+                               # practice log/stats, tap grading, tap tempo,
+                               # presets
 ./gradlew :app:lintDebug       # Android lint
 ./gradlew :app:assembleDebug
 ```
@@ -384,13 +416,14 @@ Manual verification performed during development:
 - Android emulator (API 36): clean launch, metronome start/stop, count-in,
   tala selection and playback at 2× kalam / 2-kalai / ½-after-sam eduppu,
   gesture timbres and labels, adding/toggling a 5-over-4 layer while playing,
-  composite rings, solo and per-pulse timing, foreground service while
-  backgrounded, dark mode.
+  composite rings, solo and per-pulse timing, practice session logging, goals,
+  tap pad and summary persistence, gap 2.0 pattern editor, foreground service
+  while backgrounded, dark mode.
 - iOS simulator (iPhone 17 Pro): clean launch, metronome playback, tala detail,
   tala playback at 2× kalam / 2-kalai / ½-after-sam eduppu, gesture timbres and
   labels, layer picker/editor, composite rings, solo and per-pulse timing,
-  5-over-4 layer while playing, light/dark mode, audio session start without
-  errors.
+  practice session logging, goals and tap smoke test, gap 2.0 controls,
+  light/dark mode, audio session start without errors.
 
 iOS audio is verified by scheduling and rendering; a hardware loopback test is
 recommended before shipping for measuring output latency on real devices.
@@ -410,8 +443,9 @@ recommended before shipping for measuring output latency on real devices.
 | Subdivision mixer, polyrhythm / polymeter layers, solo, per-pulse timing | ✅ implemented (v0.2) |
 | Kalam, kalai, eduppu, anga timbres, theka highlighting, practice presets | ✅ implemented (v0.3) |
 | 108 Ashtottara talas | ◻ deferred pending a verified published list and practitioner review |
-| Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ planned for v0.4 |
-| Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ planned for v0.5 |
+| Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ deferred (v0.4 skipped for now) |
+| Practice log, goals, streaks, gap 2.0, tap-accuracy grader | ✅ implemented (v0.5) |
+| Count-in voice, LiveBPM/microphone coach | ◻ deferred / gated (see v0.5 notes) |
 | Drone / temperament / pitch engine, custom samples, recording, localization | ◻ planned for v0.6 |
 | MIDI clock / BLE-MIDI, Ableton Link, network ensemble sync | ◻ deferred (offline constraint) |
 

@@ -6,6 +6,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
@@ -15,26 +16,40 @@ import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
+import com.baijum.thaalam.data.PracticeData
+import com.baijum.thaalam.data.PracticeGoals
+import com.baijum.thaalam.data.PracticeRepository
 import com.baijum.thaalam.data.PresetRepository
 import com.baijum.thaalam.data.SettingsRepository
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
 import com.baijum.thaalam.data.TalaPlayback
+import com.baijum.thaalam.data.TapAccuracySummary
 import com.baijum.thaalam.data.UiPreferences
 import com.baijum.thaalam.domain.LayerFactory
 import com.baijum.thaalam.domain.LayerMutations
+import com.baijum.thaalam.domain.PracticeFactory
 import com.baijum.thaalam.domain.MetronomeStateLogic
 import com.baijum.thaalam.domain.TalaApplication
 import com.baijum.thaalam.domain.TalaLibrary
+import com.baijum.thaalam.domain.TapGrader
 import com.baijum.thaalam.domain.TapTempo
 import com.baijum.thaalam.domain.TapTempoResult
 import com.baijum.thaalam.domain.TempoMath
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Snapshot of what the transport is doing right now. */
+/** Live tap-accuracy state for the practice screen. */
+data class TapState(
+    val lastOffsetMs: Double? = null,
+    val summary: TapAccuracySummary? = null,
+)
+
 data class PlaybackState(
     val isPlaying: Boolean = false,
     val bar: Long = 0,
@@ -62,6 +77,7 @@ class MetronomeController private constructor(
 ) {
     private val settingsRepository = SettingsRepository(appContext)
     private val presetRepository = PresetRepository(appContext)
+    private val practiceRepository = PracticeRepository(appContext)
     private val engine = MetronomeAudioEngine()
     private val tapTempo = TapTempo()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -88,10 +104,36 @@ class MetronomeController private constructor(
     val tapState: StateFlow<TapTempoResult?> = _tapState.asStateFlow()
 
     val presets: StateFlow<List<MetronomePreset>> = presetRepository.presets
+    val practice: StateFlow<PracticeData> = practiceRepository.data
+
+    private val _tapAccuracy = MutableStateFlow(TapState())
+    val tapAccuracy: StateFlow<TapState> = _tapAccuracy.asStateFlow()
 
     private var focusRequest: AudioFocusRequest? = null
     private var focusGranted = false
     private var visualGeneration = 0
+
+    private val tapGrader = TapGrader()
+    private val tapLock = ReentrantLock()
+    private var sessionActive = false
+    private var sessionStartedEpochMs = 0L
+    private var sessionStartedElapsedMs = 0L
+    private var sessionStartSettings: MetronomeSettings? = null
+    private var activePresetName: String? = null
+
+    private val outputLatencyMs: Int = runCatching {
+        val frames = audioManager
+            ?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)
+            ?.toIntOrNull()
+        val rate = audioManager
+            ?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
+            ?.toIntOrNull()
+        if (frames != null && rate != null && rate > 0) {
+            (frames * 1_000 / rate).coerceIn(0, 100)
+        } else {
+            0
+        }
+    }.getOrDefault(0)
 
     init {
         engine.onTick = ::handleTick
@@ -115,6 +157,12 @@ class MetronomeController private constructor(
         if (!requestAudioFocus()) {
             Log.w(TAG, "Audio focus denied; starting anyway")
         }
+        sessionActive = true
+        sessionStartedEpochMs = System.currentTimeMillis()
+        sessionStartedElapsedMs = SystemClock.elapsedRealtime()
+        sessionStartSettings = settings
+        tapLock.withLock { tapGrader.reset() }
+        _tapAccuracy.value = TapState()
         visualGeneration++
         _playback.value = PlaybackState(
             isPlaying = true,
@@ -127,6 +175,7 @@ class MetronomeController private constructor(
     }
 
     fun stopPlayback() {
+        finishSession()
         engine.stop()
         visualGeneration++
         _playback.value = PlaybackState()
@@ -167,6 +216,59 @@ class MetronomeController private constructor(
         if (tick.isMainBeat && tick.audible) {
             haptic(tick.kind)
         }
+        if (!tick.isCountIn && tick.isMainBeat && tick.audible) {
+            val target = tick.hostTimeMs +
+                outputLatencyMs +
+                _uiPreferences.value.tapCalibrationMs
+            // The audio thread must not block on the UI. If the grader is busy
+            // with a tap, dropping one target is better than priority inversion.
+            if (tapLock.tryLock()) {
+                try {
+                    tapGrader.addTarget(target.toDouble())
+                } finally {
+                    tapLock.unlock()
+                }
+            }
+        }
+    }
+
+    /**
+     * Grades a tap at a host-clock timestamp. The practice screen passes the
+     * touch time; targets were registered from the engine's main-beat ticks.
+     */
+    fun gradeTap(hostTimeMs: Long): Double? {
+        if (!_playback.value.isPlaying) return null
+        return tapLock.withLock {
+            val offset = tapGrader.addTap(hostTimeMs.toDouble())
+            _tapAccuracy.value = TapState(
+                lastOffsetMs = offset,
+                summary = tapGrader.summary(),
+            )
+            offset
+        }
+    }
+
+    private fun finishSession() {
+        if (!sessionActive) return
+        sessionActive = false
+        val started = sessionStartSettings ?: return
+        val ended = _settings.value
+        val duration = (SystemClock.elapsedRealtime() - sessionStartedElapsedMs)
+            .coerceAtLeast(0L)
+        val summary = tapLock.withLock { tapGrader.summary() }
+        val session = PracticeFactory.session(
+            id = "session-$sessionStartedEpochMs-${sessionStartedElapsedMs}",
+            startedAtEpochMs = sessionStartedEpochMs,
+            endedAtEpochMs = System.currentTimeMillis(),
+            durationMs = duration,
+            start = started,
+            end = ended,
+            presetName = activePresetName,
+            tap = summary,
+        )
+        practiceRepository.add(session)
+        sessionStartSettings = null
+        _tapAccuracy.value = TapState(summary = summary)
     }
 
     private fun haptic(kind: BeatKind) {
@@ -193,6 +295,7 @@ class MetronomeController private constructor(
     fun updateSettings(transform: (MetronomeSettings) -> MetronomeSettings) {
         val updated = transform(_settings.value).normalized()
         if (updated == _settings.value) return
+        activePresetName = null
         _settings.value = updated
         settingsRepository.save(updated)
         engine.update(updated)
@@ -351,8 +454,25 @@ class MetronomeController private constructor(
             it.copy(
                 gapPlayBars = playBars.coerceIn(0, 64),
                 gapSilentBars = silentBars.coerceIn(0, 64),
+                gapPattern = emptyList(),
             )
         }
+    }
+
+    fun setGapPattern(pattern: List<Boolean>) {
+        updateSettings { it.copy(gapPattern = pattern) }
+    }
+
+    fun setGapFadeBars(bars: Int) {
+        updateSettings { it.copy(gapFadeBars = bars.coerceIn(0, 8)) }
+    }
+
+    fun setGapMaxSilentBars(bars: Int) {
+        updateSettings { it.copy(gapMaxSilentBars = bars.coerceIn(1, 16)) }
+    }
+
+    fun setGapKeepSam(keep: Boolean) {
+        updateSettings { it.copy(gapKeepSam = keep) }
     }
 
     fun setMuteProbability(probability: Double) {
@@ -440,10 +560,15 @@ class MetronomeController private constructor(
     // Presets
     // ---------------------------------------------------------------------
 
-    fun savePreset(name: String): MetronomePreset = presetRepository.add(name, _settings.value)
+    fun savePreset(name: String): MetronomePreset {
+        val preset = presetRepository.add(name, _settings.value)
+        activePresetName = preset.name
+        return preset
+    }
 
     fun applyPreset(preset: MetronomePreset) {
         updateSettings { preset.settings }
+        activePresetName = preset.name
     }
 
     fun deletePreset(id: String) = presetRepository.delete(id)
@@ -473,6 +598,28 @@ class MetronomeController private constructor(
 
     fun setVisualLatency(ms: Int) =
         updateUiPreferences { it.copy(visualLatencyMs = ms.coerceIn(0, 300)) }
+
+    fun setTapCalibration(ms: Int) =
+        updateUiPreferences { it.copy(tapCalibrationMs = ms.coerceIn(-100, 200)) }
+
+    // ---------------------------------------------------------------------
+    // Practice log
+    // ---------------------------------------------------------------------
+
+    fun setPracticeGoals(dailyMinutes: Int, weeklyMinutes: Int) {
+        practiceRepository.setGoals(
+            PracticeGoals(
+                dailyMinutes = dailyMinutes,
+                weeklyMinutes = weeklyMinutes,
+            ),
+        )
+    }
+
+    fun clearPracticeHistory() = practiceRepository.clear()
+
+    fun practiceJson(): String = practiceRepository.json()
+
+    fun practiceCsv(): String = practiceRepository.csv()
 
     // ---------------------------------------------------------------------
     // Audio focus / foreground service

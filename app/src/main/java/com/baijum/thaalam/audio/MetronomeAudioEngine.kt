@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Process
+import android.os.SystemClock
 import android.util.Log
 import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
@@ -29,6 +30,8 @@ data class EngineTick(
     val bpm: Double,
     val countInBarsRemaining: Int,
     val gesture: AngaGesture,
+    /** Host monotonic time when this tick was scheduled. */
+    val hostTimeMs: Long,
 )
 
 private data class EngineConfig(
@@ -262,29 +265,41 @@ class MetronomeAudioEngine {
 
                     val liveKind = chosen.pattern.accentPattern
                         .getOrElse(step.pulse) { step.kind }
-                    val gapSilent = !isCountIn && PracticeLogic.isGapSilentBar(
-                        musicalBar,
-                        cfg.settings.gapPlayBars,
-                        cfg.settings.gapSilentBars,
-                    )
+                    val gapSilent = !isCountIn &&
+                        PracticeLogic.isGapSilentBar(musicalBar, cfg.settings)
+                    val gapGain = if (isCountIn) {
+                        1f
+                    } else {
+                        PracticeLogic.gapGainForBar(musicalBar, cfg.settings)
+                    }
+                    val keepSam = gapSilent &&
+                        cfg.settings.gapKeepSam &&
+                        chosen.isPrimary &&
+                        step.beat == 0 &&
+                        step.sub == 0
                     val muted = if (chosen.isPrimary) {
-                        PracticeLogic.shouldMuteTick(
-                            random = lcg.nextDouble(),
-                            probability = cfg.settings.muteProbability,
-                            isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
-                            protectFirstBeat = cfg.settings.protectFirstBeat,
-                            isGapSilent = gapSilent,
-                        )
+                        if (keepSam) {
+                            false
+                        } else {
+                            PracticeLogic.shouldMuteTick(
+                                random = lcg.nextDouble(),
+                                probability = cfg.settings.muteProbability,
+                                isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
+                                protectFirstBeat = cfg.settings.protectFirstBeat,
+                                isGapSilent = gapSilent,
+                            )
+                        }
                     } else {
                         gapSilent
                     }
+                    val practiceGain = if (keepSam) PracticeLogic.GAP_SAM_GAIN else gapGain
                     val audible = liveKind.isAudible && !muted && (!isCountIn || chosen.isPrimary)
                     if (audible) {
                         synth.trigger(
                             soundSet = chosen.pattern.soundSet,
                             kind = liveKind,
                             isSubdivision = !step.isMainBeat,
-                            volume = cfg.settings.volume * chosen.pattern.gain,
+                            volume = cfg.settings.volume * chosen.pattern.gain * practiceGain,
                             startFrame = offset,
                             gesture = step.gesture,
                         )
@@ -303,6 +318,7 @@ class MetronomeAudioEngine {
                                 countInBarsRemaining = (cfg.settings.countInBars - barIndex + 1)
                                     .coerceAtLeast(0),
                                 gesture = step.gesture,
+                                hostTimeMs = SystemClock.elapsedRealtime(),
                             ),
                         )
                     }

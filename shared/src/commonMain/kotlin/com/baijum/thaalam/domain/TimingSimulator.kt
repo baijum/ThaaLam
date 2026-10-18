@@ -18,6 +18,8 @@ data class SimulatedTick(
     val isCountIn: Boolean,
     val bpm: Double,
     val gesture: AngaGesture = AngaGesture.NONE,
+    /** Practice gain after gap fade and sam protection. */
+    val gain: Double = 1.0,
 )
 
 /**
@@ -103,22 +105,29 @@ object TimingSimulator {
             } else {
                 chosen.pattern.accentPattern.getOrElse(step.pulse) { step.kind }
             }
-            val gapSilent = !isCountIn && PracticeLogic.isGapSilentBar(
-                musicalBar,
-                normalized.gapPlayBars,
-                normalized.gapSilentBars,
-            )
+            val gapSilent = !isCountIn && PracticeLogic.isGapSilentBar(musicalBar, normalized)
+            val gapGain = if (isCountIn) 1f else PracticeLogic.gapGainForBar(musicalBar, normalized)
+            val keepSam = gapSilent &&
+                normalized.gapKeepSam &&
+                chosen.isPrimary &&
+                step.beat == 0 &&
+                step.sub == 0
             val muted = if (chosen.isPrimary) {
-                PracticeLogic.shouldMuteTick(
-                    random = lcg.nextDouble(),
-                    probability = normalized.muteProbability,
-                    isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
-                    protectFirstBeat = normalized.protectFirstBeat,
-                    isGapSilent = gapSilent,
-                )
+                if (keepSam) {
+                    false
+                } else {
+                    PracticeLogic.shouldMuteTick(
+                        random = lcg.nextDouble(),
+                        probability = normalized.muteProbability,
+                        isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
+                        protectFirstBeat = normalized.protectFirstBeat,
+                        isGapSilent = gapSilent,
+                    )
+                }
             } else {
                 gapSilent
             }
+            val practiceGain = if (keepSam) PracticeLogic.GAP_SAM_GAIN else gapGain
             val audible = liveKind.isAudible && !muted && (!isCountIn || chosen.isPrimary)
             ticks += SimulatedTick(
                 frame = max(0L, floor(chosenFrame).toLong()),
@@ -131,6 +140,7 @@ object TimingSimulator {
                 isCountIn = isCountIn,
                 bpm = currentBpm,
                 gesture = if (chosen.isPrimary) step.gesture else AngaGesture.NONE,
+                gain = practiceGain.toDouble(),
             )
 
             val gapBeats = chosen.pattern.gapBeatsAfter(chosen.stepIndex)

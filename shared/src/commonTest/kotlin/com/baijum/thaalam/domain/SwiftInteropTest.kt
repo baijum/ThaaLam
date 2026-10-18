@@ -244,6 +244,68 @@ class SwiftInteropTest {
     }
 
     @Test
+    fun `gap pattern mutations are Swift friendly`() {
+        val settings = SettingsMutations.setGapPatternCsv(
+            settings = MetronomeSettings(),
+            csv = "1,1,0,1",
+        )
+        assertTrue(settings.isGapTraining)
+        assertEquals(listOf(true, true, false, true), settings.gapPattern)
+        assertEquals("1,1,0,1", SettingsMutations.gapPatternCsv(settings))
+
+        val faded = SettingsMutations.setGapFadeBars(settings, 3)
+        assertEquals(3, faded.gapFadeBars)
+        val protected = SettingsMutations.setGapKeepSam(faded, true)
+        assertTrue(protected.gapKeepSam)
+        val capped = SettingsMutations.setGapMaxSilentBars(protected, 2)
+        assertEquals(2, capped.gapMaxSilentBars)
+        assertEquals(
+            emptyList(),
+            SettingsMutations.setGapTrainer(settings, 0, 0).gapPattern,
+        )
+    }
+
+    @Test
+    fun `practice factory records the musical context`() {
+        val tala = TalaLibrary.find("carnatic.chapu.misra")!!
+        val start = TalaApplication.apply(
+            tala = tala,
+            base = MetronomeSettings(bpm = 80.0, countInBars = 1),
+            nadai = Subdivision.QUARTER,
+            playback = TalaPlayback(kalam = 2, kalai = 2, eduppuOffsetAksharas = 0.5),
+        )
+        val end = start.copy(bpm = 88.0).normalized()
+        val session = PracticeFactory.session(
+            id = "s1",
+            startedAtEpochMs = 1_000L,
+            endedAtEpochMs = 61_000L,
+            durationMs = 60_000L,
+            start = start,
+            end = end,
+            presetName = "Misra drill",
+            tap = null,
+        )
+        assertEquals("Misra Chapu", session.talaName)
+        assertEquals("7/4", session.meterLabel)
+        assertEquals("3 + 4", session.groupingLabel)
+        assertEquals(80.0, session.startBpm)
+        assertEquals(88.0, session.endBpm)
+        assertEquals(160.0, session.effectiveStartBpm)
+        assertEquals(176.0, session.effectiveEndBpm)
+        assertEquals(0, session.layerCount)
+        assertEquals(2, session.kalam)
+        assertEquals(2, session.kalai)
+        assertEquals("Misra drill", session.presetName)
+    }
+
+    @Test
+    fun `tap grader factory creates an empty grader`() {
+        val grader = TapGraderFactory.create()
+        assertEquals(0, grader.tapCount())
+        assertEquals(null, grader.summary())
+    }
+
+    @Test
     fun `tala factory drill names summarise the configuration`() {
         val tala = TalaLibrary.find("carnatic.chapu.misra")!!
         val name = TalaFactory.drillName(

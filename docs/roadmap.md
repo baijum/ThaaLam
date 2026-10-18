@@ -1,42 +1,74 @@
 # ThaaLam roadmap — next feature set
 
-> Status: v0.3 complete; Ashtottara talas deferred; real-device profiling still
-> recommended
-> Baseline: v0.1.0, commit `f45f89d`
+> Status: v0.5 shipped (0.5.0); v0.4 is deferred at the user's request. See **Current status** below.
+> Baseline: v0.1.0, commit `f45f89d`.
 > Product constraints: offline only, no accounts, no analytics, no ads, no
 > network permissions, no third-party audio SDKs without discussion.
->
-> v0.2 delivered: shared layer model, compiler, timing simulator and tests;
-> multi-voice scheduling on Android and iOS; layer picker/editor; solo and
-> per-pulse micro-timing; composite cycle rings; preset persistence; 0.2.0
-> release notes. Remaining: real-device CPU/jitter/Bluetooth profiling and a
-> full Dynamic Type pass over the older screens.
->
-> v0.3 delivered: kalam 1×/2×/4×, kalai 1/2, eduppu with phase-aligned
-> count-in, anga gesture timbres and visual gestures, Jhoomra and Tilwada theka
-> bols with live bol highlighting, tala practice presets, and the shared
-> playback model with tests. The 108 Ashtottara talas remain deferred pending a
-> verified source and practitioner review, as required below.
 
 This plan turns the two research reports into a sequenced, release-sized
 roadmap. It is deliberately opinionated: the next release is chosen for
 architectural leverage, not just for the longest feature list.
 
+## Current status
+
+> As of 18 October 2026 · branch `main` · v0.5.0 release
+
+| Release | Theme | Status | Version |
+|---|---|---|---|
+| v0.1 | Foundation | **Shipped** — sample-accurate metronome, meters, talas, practice tools | 0.1.0 |
+| v0.2 | Layers | **Shipped** — multi-voice scheduling, subdivision mixer, polyrhythm, polymeter, solo, micro-timing | 0.2.0 |
+| v0.3 | Tala Mastery | **Shipped** — kalam, kalai, eduppu, anga gestures, theka highlighting, tala practice presets | 0.3.0 |
+| v0.4 | Songs & Stage | **Deferred** — skipped at the user's request; scoped but not started | — |
+| v0.5 | Practice Intelligence | **Shipped** — local practice log, goals/streaks, Gap 2.0, tap-accuracy grader | 0.5.0 |
+| v0.6 | Pitch & Sound | **Next candidate** — not started | — |
+
+**Current verification:** 156 shared tests pass; Android debug, release and lint
+pass; iOS Debug and Release simulator builds pass; manual smoke tests on a
+Pixel 9 emulator and iPhone 17 Pro simulator.
+
+**Open follow-ups from shipped releases:**
+
+- Real-device CPU, jitter and Bluetooth latency profiling.
+- A full Dynamic Type / large-font pass over the older screens.
+- Carnatic and Hindustani practitioner review of the kalam, kalai, eduppu and
+  gesture labels and count-in behaviour.
+- The 108 Ashtottara talas remain **deferred** pending a verified published
+  source and that practitioner review.
+- Count-in voice remains deferred (no bundled/licensed voice assets).
+- The microphone rhythm coach remains a **no-go spike**; see
+  [microphone-spike.md](microphone-spike.md).
+
+**Next milestone:** decision pending — v0.4 Songs & Stage (deferred) or v0.6
+Pitch & Sound.
+
 ## 1. Where we are
 
-The first release covers the research reports' "must-have" core and several
-"should-have" items:
+ThaaLam has shipped three releases. The app now covers the research reports'
+"must-have" core and most of the "should-have" items:
 
-- Sample-accurate frame scheduling on both platforms
-- Meters, additive grouping, 1–9 subdivisions, swing, four accent states
-- 35 Suladi Sapta Talas, Chapu talas, 9 Hindustani cycles, nadai
-- Count-in, gap trainer, stochastic muting, stepped tempo ramp
-- Presets, background playback, haptics, screen flash, visual latency offset
-- Accessibility labels, reduce-motion handling, light/dark themes
+- **v0.1 — Foundation:** sample-accurate frame scheduling on both platforms;
+  meters and additive grouping; 1–9 subdivisions; swing; four accent states;
+  35 Suladi Sapta Talas, Chapu and Hindustani cycles; nadai; count-in, gap
+  trainer, stochastic muting and stepped tempo ramp; presets, background
+  playback, haptics, screen flash and visual latency offset.
+- **v0.2 — Layers:** up to three additional voices on the same clock;
+  subdivision mixer, polyrhythm and polymeter; per-layer sound, gain, swing,
+  offset and solo; per-pulse micro-timing; composite cycle rings.
+- **v0.3 — Tala Mastery:** kalam 1×/2×/4×, kalai 1/2, eduppu with a
+  phase-aligned count-in, anga gesture timbres and visual gestures, live theka
+  bol highlighting, and tala practice presets.
+- **v0.5 — Practice Intelligence:** local practice log with goals, streaks and
+  local-day splitting; Gap 2.0 patterns, fade and sam protection; touch-based
+  tap-accuracy grader with histogram, bias and calibration; CSV/JSON export and
+  clear-history. Count-in voice and the microphone coach remain deferred.
 
-The gaps that matter next are not more click sounds. They are **simultaneous
-rhythmic layers**, **song/setlist workflows**, **practice feedback**, and
-**depth in the tala model**.
+The remaining tala-depth item is the 108 Ashtottara talas. The catalogue is
+data-only, so it can be added without engine changes once a reliable source and
+practitioner review exist.
+
+Practice feedback is now shipped. The gaps that matter next are
+**song/setlist workflows** (v0.4, currently deferred) and **pitch/sound**
+(v0.6).
 
 ## 2. How the next features were chosen
 
@@ -49,41 +81,42 @@ Each candidate was scored on four questions:
 
 ### Research-to-roadmap map
 
-| Research feature | Report evidence | Current state | Decision |
-|---|---|---|---|
-| Simultaneous subdivision mixer | Report 2, "Tactile Subdivision Mixing"; report 1, sound/timing features | One subdivision grid at a time | **v0.2** |
-| Polyrhythm / polymeter | Report 2, "Mathematical Resolution of Polyrhythms vs. Polymeters"; report 1, "Nice-to-have" | Not implemented | **v0.2** |
-| Per-voice sound, gain, offset | Report 2, hybrid sound and micro-timing | Global sound/volume only | **v0.2** |
-| Kalam, kalai, eduppu | Report 2, tala engine table | Basic akshara cycle only | **v0.3** |
-| Anga-specific timbres / gestures | Report 2, anga gestures | Accent/ghost only | **v0.3** |
-| 108 Ashtottara talas | Report 2, tala engine table | 47 cycles | **v0.3, deferred** |
-| Hindustani bols | Report 2, tala engine table | Theka text only | **v0.3** |
-| Setlists / song profiles | Report 2, stage UX; report 1, setlists | Flat presets only | **v0.4** |
-| Chained mixed-meter sequences | Report 2, additive/mixed-meter sequencer | One meter at a time | **v0.4** |
-| Count-off / auto-stop stage mode | Report 2, Tama-style live mode | Count-in only | **v0.4** |
-| Continuous tempo ramps / tempo maps | Report 2, pedagogical automation | Stepped ramp only | **v0.4** |
-| Bluetooth latency auto-detection | Report 2, dynamic A2DP compensation | Manual visual offset only | **v0.4** |
-| Practice log, goals, streaks | Report 1, should-have; report 2, practice recording | Not implemented | **v0.5** |
-| Deterministic gap + fade | Report 2, gap click | Gap bars, no fade/constraints | **v0.5** |
-| Tap-accuracy grader | Report 2, Rhythm Coach | Tap tempo only | **v0.5** |
-| Voice count-in | Report 1, should-have | Click count-in only | **v0.5** |
-| Microphone rhythm coach / LiveBPM | Report 2, MIR | Not implemented | **v0.5 spike, then gate** |
-| Drone / tanpura / temperament | Report 2, harmonic reference | Not implemented | **v0.6** |
-| Custom click samples / EQ / pan | Report 2, hybrid sound | Five synth timbres | **v0.6** |
-| Audio recording / export | Report 2, practice recorder | Not implemented | **v0.6** |
-| Localization | Report 1, accessibility/localization | English only | **cross-cutting, language packs in v0.6** |
-| MIDI, BLE pedals, Ableton Link | Report 2, stage connectivity | Not implemented | **deferred; needs a constraints decision** |
-| Cloud, accounts, analytics, ads | Report 1, monetization | Deliberately absent | **out of scope** |
+| Research feature | Report evidence | Baseline (v0.1) | Planned release | Status |
+|---|---|---|---|---|
+| Simultaneous subdivision mixer | Report 2, "Tactile Subdivision Mixing"; report 1, sound/timing features | One subdivision grid at a time | v0.2 | **Delivered (0.2.0)** |
+| Polyrhythm / polymeter | Report 2, "Mathematical Resolution of Polyrhythms vs. Polymeters"; report 1, "Nice-to-have" | Not implemented | v0.2 | **Delivered (0.2.0)** |
+| Per-voice sound, gain, offset | Report 2, hybrid sound and micro-timing | Global sound/volume only | v0.2 | **Delivered (0.2.0)** |
+| Kalam, kalai, eduppu | Report 2, tala engine table | Basic akshara cycle only | v0.3 | **Delivered (0.3.0)** |
+| Anga-specific timbres / gestures | Report 2, anga gestures | Accent/ghost only | v0.3 | **Delivered (0.3.0)** |
+| 108 Ashtottara talas | Report 2, tala engine table | 46-cycle catalogue | v0.3 | **Deferred** (current catalogue: 47 cycles) |
+| Hindustani bols | Report 2, tala engine table | Theka text only | v0.3 | **Delivered (0.3.0)** |
+| Setlists / song profiles | Report 2, stage UX; report 1, setlists | Flat presets only | v0.4 | **Deferred** |
+| Chained mixed-meter sequences | Report 2, additive/mixed-meter sequencer | One meter at a time | v0.4 | **Deferred** |
+| Count-off / auto-stop stage mode | Report 2, Tama-style live mode | Count-in only | v0.4 | **Deferred** |
+| Continuous tempo ramps / tempo maps | Report 2, pedagogical automation | Stepped ramp only | v0.4 | **Deferred** |
+| Bluetooth latency auto-detection | Report 2, dynamic A2DP compensation | Manual visual offset only | v0.4 | **Deferred** |
+| Practice log, goals, streaks | Report 1, should-have; report 2, practice recording | Not implemented | v0.5 | **Delivered (0.5.0)** |
+| Deterministic gap + fade | Report 2, gap click | Gap bars, no fade/constraints | v0.5 | **Delivered (0.5.0)** |
+| Tap-accuracy grader | Report 2, Rhythm Coach | Tap tempo only | v0.5 | **Delivered (0.5.0)** |
+| Voice count-in | Report 1, should-have | Click count-in only | v0.5 | **Deferred** |
+| Microphone rhythm coach / LiveBPM | Report 2, MIR | Not implemented | v0.5 spike, then gate | **No-go for 0.5.0** |
+| Drone / tanpura / temperament | Report 2, harmonic reference | Not implemented | v0.6 | Planned |
+| Custom click samples / EQ / pan | Report 2, hybrid sound | Five synth timbres | v0.6 | Planned |
+| Audio recording / export | Report 2, practice recorder | Not implemented | v0.6 | Planned |
+| Localization | Report 1, accessibility/localization | English only | Cross-cutting, language packs in v0.6 | Planned |
+| MIDI, BLE pedals, Ableton Link | Report 2, stage connectivity | Not implemented | Deferred | **Deferred — needs a constraints decision** |
+| Cloud, accounts, analytics, ads | Report 1, monetization | Deliberately absent | Out of scope | **Out of scope** |
 
 ## 3. Recommended sequence
 
-| Release | Theme | Main outcome | Indicative size |
-|---|---|---|---|
-| **v0.2** | **Layers** | Two to four simultaneous rhythmic voices, a subdivision mixer, polyrhythm and polymeter | 8–10 weeks |
-| **v0.3** | **Tala Mastery** | Kalam, kalai, eduppu, anga timbres, richer Hindustani bols; Ashtottara deferred | 4–6 weeks |
-| **v0.4** | **Songs & Stage** | Mixed-meter songs, setlists, count-off/auto-stop, stage view, continuous ramps, latency help | 6–8 weeks |
-| **v0.5** | **Practice Intelligence** | Local practice log, goals, gap 2.0, tap-accuracy grader, count-in voice | 6–8 weeks |
-| **v0.6** | **Pitch & Sound** | Drone/tanpura, temperaments, custom samples, EQ/pan, recording/export, localization | 8–10 weeks |
+| Release | Theme | Main outcome | Status | Original estimate |
+|---|---|---|---|---|
+| **v0.1** | **Foundation** | Sample-accurate engine, meters, accents, practice tools, first tala catalogue | **Shipped** | — |
+| **v0.2** | **Layers** | Two to four simultaneous rhythmic voices, a subdivision mixer, polyrhythm and polymeter | **Shipped** (0.2.0) | 8–10 weeks |
+| **v0.3** | **Tala Mastery** | Kalam, kalai, eduppu, anga timbres, richer Hindustani bols; Ashtottara deferred | **Shipped** (0.3.0) | 4–6 weeks |
+| **v0.4** | **Songs & Stage** | Mixed-meter songs, setlists, count-off/auto-stop, stage view, continuous ramps, latency help | **Deferred — not started** | 6–8 weeks |
+| **v0.5** | **Practice Intelligence** | Local practice log, goals, gap 2.0, tap-accuracy grader, count-in voice | **Shipped (0.5.0)**; count-in voice and mic coach deferred | 6–8 weeks |
+| **v0.6** | **Pitch & Sound** | Drone/tanpura, temperaments, custom samples, EQ/pan, recording/export, localization | **Next candidate** | 8–10 weeks |
 
 Estimates assume one experienced developer, both platforms, tests and manual
 device checks. They are not commitments.
@@ -97,28 +130,37 @@ description.
 **Why Tala Mastery before Songs.** The research roadmap is written from a
 Western-metronome perspective. ThaaLam's identity is the tala engine, and kalam,
 kalai and eduppu are core vocabulary for its audience, not optional polish. The
-release is also mostly shared data and compiler work, so it carries less timing
-risk than a song scheduler. If stage workflows become the commercial priority,
-v0.3 and v0.4 can be swapped.
+release was mostly shared data and compiler work, so it carried less timing risk
+than a song scheduler. It shipped as 0.3.0.
+
+**Why v0.5 before v0.4.** The user asked to skip Songs & Stage for now. Practice
+Intelligence was largely independent of a song scheduler and could ship as
+0.5.0. v0.4 remains scoped and deferred; it is the natural next stage release
+when prioritised.
 
 **Why practice feedback later.** A practice log is valuable but independent; it
-can ship in any release. Microphone-based grading is the highest-risk feature in
-either report (permissions, false onsets, latency, privacy) and should follow a
-spike, not lead the roadmap.
+shipped as v0.5 after the tala work. Microphone-based grading is the
+highest-risk feature in either report (permissions, false onsets, latency,
+privacy); the 0.5.0 spike is a documented no-go, not a shipped guesser.
 
 ### Small bets that can ship independently
 
-These are useful if a smaller release is needed before or alongside v0.2:
+These are useful if a smaller release is needed before or alongside v0.4:
 
 - **A2DP latency suggestion** (1–2 weeks): detect the route, suggest a visual
-  offset, keep the manual control.
+  offset, keep the manual control. **Folded into v0.4 latency assistance.**
 - **Practice log MVP** (2–3 weeks): record sessions and show a weekly total,
-  before goals and streaks.
-- **Count-in voice** (1–2 weeks): bundled samples, no microphone.
+  before goals and streaks. **Folded into v0.5.**
+- **Count-in voice** (1–2 weeks): bundled samples, no microphone. **Folded into
+  v0.5.**
 - **String extraction** (about 1 week): move copy into resources before the new
-  screens land, so localization is not a rewrite.
+  screens land, so localization is not a rewrite. **Not started; still a
+  cross-cutting prerequisite for v0.6 localization.**
 
 ## 4. v0.2 — Layers
+
+> **Status: shipped as 0.2.0.** Kept here as the design record for the layer
+> semantics.
 
 ### Goal
 
@@ -333,9 +375,24 @@ Platform checks:
 
 ## 5. v0.3 — Tala Mastery
 
-> **Status: implemented** (0.3.0). Kalam, kalai, eduppu, anga gestures, theka
-> highlighting and tala practice presets are shipped. Ashtottara talas are the
-> one deferred scope item; see the note under scope item 5.
+> **Status: shipped as 0.3.0** (build 3). Kalam, kalai, eduppu, anga gestures
+> and theka highlighting are in the app. Two scope items are not fully closed:
+> the 108 Ashtottara talas are **deferred**, and automated kalam-ladder /
+> nadai-cycle drills are **partial** (static drill presets work; automatic
+> sequences need the v0.4 tempo-map/scheduler). The kalam, kalai, eduppu and
+> gesture labels still need practitioner review.
+
+### Scope status
+
+| Scope item | Status | Notes |
+|---|---|---|
+| Kalam 1×/2×/4× | **Shipped** | Base tempo preserved; live changes keep the running bar |
+| Kalai 1/2 | **Shipped, review pending** | Multiplies the primary tick grid; count-in stays one click per akshara; practitioner review of the 1/2-kalai definition still needed |
+| Eduppu | **Shipped, review pending** | Sam, atita, anagata and custom quarter-akshara offset; count-in is phase-aligned; review of the count-in cue still needed |
+| Anga timbres and gestures | **Shipped, review pending** | Clap, finger, wave, tali and khali in both sound and UI; chapu gesture interpretation is documented and needs review |
+| Hindustani bols | **Shipped** | Live current-bol highlight; Jhoomra and Tilwada bols added |
+| Tala practice presets | **Partial** | Any kalam/kalai/eduppu configuration can be saved as an ordinary preset; automatic kalam-ladder / nadai-cycle drills need a sequencer |
+| 108 Ashtottara talas | **Deferred** | Needs a verified published list and practitioner review |
 
 ### Goal
 
@@ -366,7 +423,9 @@ using the same audio clock and no special playback mode.
 6. **Hindustani bols** — display the theka with the current bol highlighted;
    optional spoken/sample playback can follow in v0.6.
 7. **Tala practice presets** — kalam ladder (1x → 2x → 4x), nadai cycle, and
-   eduppu drills, saved as ordinary presets.
+   eduppu drills, saved as ordinary presets. **Partial:** static drill presets
+   are supported today; automatic ladders/cycles are deferred to the v0.4
+   tempo-map/sequencer work.
 
 ### Data and compiler
 
@@ -382,18 +441,26 @@ using the same audio clock and no special playback mode.
   **partly implemented**: Jhoomra and Tilwada bols shipped, gestures and bol
   lengths tested; `ashtottara` deferred.
 
-### Acceptance
+### Acceptance status
 
-- Switching kalam while playing changes tempo without dropping or restarting
-  the cycle.
-- Eduppu count-in lands on the requested fractional offset.
-- Every tala still compiles to a valid `MetronomeSettings` and plays with
-  layers, swing, gap and ramp.
-- All data tests pass; a Carnatic and a Hindustani practitioner review the
-  labels and count-in behaviour.
-- Both platform builds and accessibility pass.
+- **Verified:** switching kalam while playing changes tempo without dropping or
+  restarting the cycle (shared scheduling tests plus a live 2× → 4× simulator
+  check).
+- **Verified:** eduppu count-in lands on the requested fractional offset
+  (shared simulator tests, including the count-in → musical-bar transition with
+  kalai).
+- **Verified:** every tala still compiles to a valid `MetronomeSettings` and
+  plays with layers, swing, gap and ramp (shared tests and manual checks).
+- **Verified:** 127 shared tests, Android debug/release/lint and iOS
+  Debug/Release builds pass.
+- **Outstanding:** Carnatic and Hindustani practitioner review of the labels and
+  count-in behaviour; a full accessibility audit of the new tala controls.
+- **Deferred:** Ashtottara catalogue, as above.
 
 ## 6. v0.4 — Songs & Stage
+
+> **Status: deferred at the user's request; not started.** Scoped below and kept
+> as the design record. Practice Intelligence (v0.5) shipped first.
 
 ### Goal
 
@@ -450,6 +517,21 @@ music.
 
 ## 7. v0.5 — Practice Intelligence
 
+> **Status: shipped as 0.5.0** (build 5). The practice log, goals/streaks, Gap 2.0
+> and tap-accuracy grader are implemented. Count-in voice and the microphone
+> coach remain deferred; the latter is a documented no-go.
+
+### Scope status
+
+| Scope item | Status | Notes |
+|---|---|---|
+| Practice log | **Shipped** | Start-to-stop sessions, tala/meter/preset context, practice modes, tap summary, 500-session cap, clear and CSV/JSON export |
+| Goals and streaks | **Shipped** | Daily/weekly goals, local-midnight splitting, time-zone-aware streak, best tempo per tala/preset |
+| Gap 2.0 | **Shipped** | Custom patterns, fade, max-silent repair, optional protected sam, downbeat re-entry |
+| Tap-accuracy grader | **Shipped** | Touch input, host-clock targets, output-latency estimate, calibration, histogram and rating |
+| Count-in voice | **Deferred** | No bundled/licensed voice assets; click count-in remains |
+| Microphone coach / LiveBPM | **No-go for 0.5.0** | Permission, privacy, false-onset and latency risks; see [microphone-spike.md](microphone-spike.md) |
+
 ### Goal
 
 Give players objective, local feedback and a reason to return, without
@@ -465,6 +547,9 @@ accounts, telemetry or cloud.
 3. **Gap 2.0** — deterministic play/gap patterns, fade-out over N bars,
    re-enter on a downbeat, optional protection of sam, and mute constraints
    (maximum consecutive muted beats, cluster by beat vs. subdivision).
+   **Partly implemented:** patterns, fade, downbeat re-entry, sam protection and
+   a maximum consecutive *silent-bar* repair shipped; the finer beat-cluster
+   constraints are deferred.
 4. **Tap-accuracy grader** — tap along with the click; compare touch timestamps
    with the scheduled grid; show signed error, rushing/dragging, a histogram
    and a per-session summary. This needs an explicit audio-frame-to-host-clock
@@ -477,26 +562,37 @@ accounts, telemetry or cloud.
    onset detection, noise gate, latency compensation, permission handling and
    privacy copy. Gate the feature on measured accuracy and usability. Do not
    ship a grader that guesses.
+   **No-go for 0.5.0:** no microphone permission was added; the decision,
+   criteria and future plan are in
+   [microphone-spike.md](microphone-spike.md).
 
 ### Storage
 
-Start with the existing shared JSON codec and a bounded list (e.g. 500
-sessions). If history grows beyond that, migrate to SQLDelight or a platform
-database behind the same repository interface. Do not add a network service.
+Shipped as the shared JSON codec under `thaalam.practice.v1`, with a bounded
+500-session list. If history grows beyond that, migrate to SQLDelight or a
+platform database behind the same repository interface. Do not add a network
+service.
 
-### Acceptance
+### Acceptance status
 
-- A session is recorded from start to stop and survives app restart.
-- Goals/streaks compute correctly across time zones and midnight.
-- Gap fade and mute constraints are deterministic and unit-tested.
-- Tap accuracy is within the agreed tolerance on a simulated clock and shows
-  useful feedback on a real device.
-- Export produces a readable CSV/JSON via the share sheet.
-- A clear-data action removes all practice history.
-- The microphone spike has a written go/no-go with measurements; if no-go, the
-  rest of the release still ships.
+- **Verified:** a session is recorded from start to stop and survives app
+  restart (manual Android and iOS smoke tests).
+- **Verified:** goals/streaks compute across time zones and midnight (shared
+  tests with a fixed Asia/Kolkata zone and a midnight-crossing session).
+- **Verified:** gap patterns, fade and the silent-run repair are deterministic
+  and unit-tested. Finer beat-cluster constraints are deferred.
+- **Verified:** tap accuracy is deterministic on a simulated clock (shared
+  grader tests); the Android emulator shows the live summary, and an iOS smoke
+  test persisted a tap summary into the session log. Real-device latency
+  calibration is still recommended.
+- **Verified:** CSV/JSON export and clear-history work through the platform
+  share sheet / local action.
+- **No-go:** the microphone spike has a written decision and criteria; no
+  permission was added. Count-in voice is deferred for asset reasons.
 
 ## 8. v0.6 — Pitch & Sound
+
+> **Status: planned.** Not started.
 
 ### Goal
 
@@ -554,8 +650,8 @@ done.
 ### Schema and migration
 
 - Add fields with defaults; never rename existing JSON fields.
-- Keep `thaalam.settings.v1` and `thaalam.presets.v1`; add `thaalam.songs.v1`
-  and `thaalam.practice.v1` when needed.
+- Keep `thaalam.settings.v1`, `thaalam.presets.v1` and `thaalam.practice.v1`;
+  add `thaalam.songs.v1` when v0.4 lands.
 - Golden JSON tests for: old settings, old presets, new settings, malformed
   JSON, unknown fields.
 - If a breaking change is unavoidable, add a versioned key and a migration
@@ -627,46 +723,61 @@ manual device checks, and a final `git diff --check`.
 
 ### Product decisions
 
-1. **Practice log storage**: JSON first, database later. Confirm the history cap.
-2. **Microphone coach**: approve the spike budget and the go/no-go criteria
-   before v0.5.
+1. **Practice log storage**: shipped as shared JSON with a 500-session cap.
+   Migrate to a platform database only if history grows beyond that.
+2. **Microphone coach**: **no-go for 0.5.0**; no permission added. Revisit with a
+   real-device test budget and the criteria in
+   [microphone-spike.md](microphone-spike.md).
 3. **Tala sources**: choose the authoritative source for the 108 Ashtottara
    talas and arrange a practitioner review.
 4. **Localization languages**: Hindi and Tamil are proposed; confirm.
 5. **Monetization**: the research recommends a one-time "Pro" unlock rather
    than a subscription. That is a product/store decision, not part of this
    technical plan; no ads or telemetry should be added.
-6. **Layer cap**: three extra layers is the proposed cap for v0.2. Confirm
-   whether four or more is worth the UI and synth cost.
+6. **Layer cap**: three extra layers shipped in v0.2 and remain the cap.
+   Confirm whether four or more is worth the UI and synth cost in a later
+   release.
 
 ## 11. What success looks like
 
 Without telemetry, success is measured by task tests and timing measurements:
 
-- A musician can build a 5:4 polyrhythm in under 30 seconds and explain what
-  they hear.
-- A three-layer preset survives save/reload on both platforms without drift.
-- A Carnatic student can switch kalam and start on an eduppu without leaving
-  the tala screen.
-- A performer can program a five-song setlist and use count-off/auto-stop on a
-  dark stage.
-- A practice session produces a log, a streak and an accuracy summary that the
-  player trusts.
-- The click remains sample-accurate: no drift over 30 minutes, no audible
-  jitter, no timer-based scheduling.
-- The app remains offline, permission-light and accessible.
+- **Achieved (v0.2):** a musician can build a 5:4 polyrhythm in under 30 seconds
+  and explain what they hear.
+- **Achieved (v0.2):** a three-layer preset survives save/reload on both
+  platforms without drift.
+- **Achieved (v0.3, pending practitioner review):** a Carnatic student can
+  switch kalam and start on an eduppu without leaving the tala screen.
+- **Pending (v0.4):** a performer can program a five-song setlist and use
+  count-off/auto-stop on a dark stage.
+- **Achieved (v0.5, with real-device calibration outstanding):** a practice
+  session produces a log, a streak and an accuracy summary that the player can
+  inspect and export.
+- **Achieved, with profiling outstanding:** the click remains sample-accurate
+  in shared 30-minute drift tests and manual runs; real-device jitter and
+  Bluetooth latency measurements are still recommended.
+- **Achieved, with audit outstanding:** the app remains offline,
+  permission-light and accessible; a full accessibility audit is still open.
 
 ## 12. Immediate next actions
 
-1. ~~Review and approve the v0.2 scope and the layer semantics.~~ Done.
-2. ~~Write the shared layer tests before touching either engine.~~ Done.
-3. ~~Add the timing simulator and golden fixtures.~~ Done.
-4. ~~Implement the Android multi-voice engine, then port the same structure to
+1. Keep **Current status** and the release tables at the top of this document
+   up to date at every release; that is the single source of truth for shipped
+   scope.
+2. ~~Review and approve the v0.2 scope and the layer semantics.~~ Done.
+3. ~~Write the shared layer tests before touching either engine.~~ Done.
+4. ~~Add the timing simulator and golden fixtures.~~ Done.
+5. ~~Implement the Android multi-voice engine, then port the same structure to
    iOS.~~ Done.
-5. ~~Build the layers UI and preset migration; run the full release checklist.~~
+6. ~~Build the layers UI and preset migration; run the full release checklist.~~
    Done.
-6. ~~Re-estimate v0.3 after v0.2 lands.~~ Done; v0.3 shipped as 0.3.0.
-7. Next: v0.4 Songs & Stage (mixed-meter sections, setlists, count-off,
-   stage view, continuous ramps, latency assistance).
-8. Before v0.4: verify the Ashtottara source and arrange a Carnatic /
-   Hindustani practitioner review so the tala depth item can close.
+7. ~~Re-estimate v0.3 after v0.2 lands.~~ Done; v0.3 shipped as 0.3.0.
+8. ~~Ship v0.5 Practice Intelligence.~~ Done; 0.5.0 shipped.
+9. **Next:** choose between the deferred v0.4 Songs & Stage and v0.6 Pitch &
+   Sound.
+10. **Before v0.4 ships:** verify the Ashtottara source and arrange a Carnatic /
+    Hindustani practitioner review so the tala depth item can close.
+11. **Carry into the next release:** real-device CPU/jitter/Bluetooth profiling,
+    the full Dynamic Type pass, and a real-device tap-latency calibration.
+12. **Keep deferred:** count-in voice assets and the microphone coach; revisit
+    only with an explicit product decision and test budget.

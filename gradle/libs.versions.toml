@@ -10,6 +10,7 @@ lifecycleViewmodelCompose = "2.10.0"
 coreKtx = "1.19.1"
 kotlinxCoroutines = "1.11.0"
 kotlinxSerializationJson = "1.11.0"
+kotlinxDatetime = "0.7.1"
 junit = "4.13.2"
 kotest = "6.2.5"
 robolectric = "4.17"
@@ -32,6 +33,7 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }

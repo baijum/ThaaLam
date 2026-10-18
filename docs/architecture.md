@@ -46,7 +46,8 @@ steps.
 | `soundSet` | click timbre |
 | `volume` | master gain |
 | `countInBars` | 0–4 |
-| `gapPlayBars`, `gapSilentBars` | deterministic gap trainer |
+| `gapPlayBars`, `gapSilentBars` | legacy deterministic gap trainer |
+| `gapPattern`, `gapFadeBars`, `gapMaxSilentBars`, `gapKeepSam` | Gap 2.0 custom bar pattern, fade, repair limit and optional sam protection |
 | `muteProbability`, `protectFirstBeat` | stochastic muting |
 | `rampEnabled`, `rampTargetBpm`, `rampStepBpm`, `rampEveryBars` | tempo automation |
 | `talaId` | provenance for UI display and presets |
@@ -208,16 +209,27 @@ For each tick the engines evaluate, in order:
 
 ```text
 if count-in bar:              no gap / no stochastic mute
-else if gapSilentBar:         mute every tick (clock still advances)
-else if first pulse && protect: audibly play
-else if random < probability:  mute
-else:                         play
+else if gapSilentBar:
+    if gapKeepSam && primary sam: play softly (0.45 gain)
+    else:                       mute every voice (clock still advances)
+else: apply gap fade gain
+     if first pulse && protect: audibly play
+     else if random < probability: mute
+     else: play
 ```
 
 - `PracticeLogic.isGapSilentBar(bar, play, silent)` uses 1-based musical bars.
 - `PracticeLogic.shouldMuteTick` receives a deterministic LCG value from the
   engine.
 - `PracticeLogic.bpmForBar` computes the stepped ramp at bar boundaries.
+- `PracticeLogic.gapCycle`, `isGapSilentBar(bar, settings)` and
+  `gapGainForBar` implement Gap 2.0. A custom pattern is a bounded list of
+  play/gap booleans; consecutive gaps are repaired at the configured maximum.
+  The fade returns a gain for the last play bars before a gap, and the engines
+  multiply the click volume by it.
+- On a silent bar, `gapKeepSam` lets the primary sam click through at
+  `GAP_SAM_GAIN` (0.45) so the player can find the downbeat again. The next full
+  play bar re-enters on its first beat.
 
 The count-in uses a quarter-note version of the same bar and accent pattern, and
 is announced separately to the UI (`isCountIn`, `countInBarsRemaining`). The
@@ -227,7 +239,8 @@ Layer rules:
 
 - Count-in voices only the primary; layers advance silently so they enter in
   phase on the first musical bar.
-- Gap bars mute every voice. Stochastic muting applies to the primary voice.
+- Gap bars mute every voice, except the optional protected sam on the primary
+  voice. Stochastic muting applies to the primary voice.
 - A new layer starts at the current frame, never at frame zero, so adding a
   voice mid-performance cannot emit a burst of catch-up clicks.
 - Removing or disabling a layer drops its runtime; re-enabling starts a fresh
@@ -302,20 +315,62 @@ to `ClickSynth`, and the UI shows the same symbol/label on the pulse map and tal
 cycle. Gestures are resolved from the tala when the primary grid is compiled, so
 they do not affect accent edits or the grid key.
 
-## 8. Persistence
+## 8. Practice intelligence
 
-Both platforms store JSON produced by the shared `PresetCodec`:
+The practice log is independent of the metronome settings and preset stores. It
+uses the shared `thaalam.practice.v1` JSON key and is capped at 500 sessions.
+
+`PracticeSession` stores a snapshot, not a reference to live settings:
+
+```text
+id, startedAtEpochMs, endedAtEpochMs, durationMs
+startBpm, endBpm, effectiveStartBpm, effectiveEndBpm
+meterLabel, groupingLabel, talaId, talaName, presetName
+layerCount, countInBars, gapEnabled, gapPattern, rampEnabled,
+muteProbability, kalam, kalai, tap
+```
+
+`PracticeFactory.session()` derives the musical context from two settings
+snapshots (start and stop), so Android and iOS cannot produce different labels.
+The platforms supply monotonic duration plus epoch timestamps; a killed process
+does not retroactively invent a session.
+
+`PracticeStatsCalculator` computes today/weekly/all-time minutes, a seven-day
+strip, streak and best tempo per tala or preset. It converts epoch timestamps to
+the supplied time zone, splits a session that crosses local midnight, and counts
+a streak from today when there are minutes today, otherwise from yesterday so a
+streak does not disappear before the day ends.
+
+`TapGrader` matches a tap to the nearest unused target within 250 ms and records
+the signed offset. Targets are added from main-beat engine ticks, not UI
+animation:
+
+- Android: `EngineTick.hostTimeMs` is `SystemClock.elapsedRealtime()`; output
+  latency is estimated from `PROPERTY_OUTPUT_FRAMES_PER_BUFFER` and
+  `PROPERTY_OUTPUT_SAMPLE_RATE`; a user calibration is added.
+- iOS: `hostTimeMs` comes from `CACurrentMediaTime()` in the render callback;
+  `AVAudioSession.outputLatency` and the calibration are added.
+- A lock protects the Android grader because targets arrive on the audio thread
+  while taps arrive on the UI thread. The render path uses `tryLock` and drops a
+  target rather than blocking.
+
+## 9. Persistence
+
+Both platforms store JSON produced by the shared `PresetCodec` and
+`PracticeCodec`:
 
 - settings: `MetronomeSettings.serializer()`
 - presets: `List<MetronomePreset>`
+- practice log and goals: `PracticeData.serializer()`
 
 Android uses `SharedPreferences`; iOS uses `UserDefaults`. The keys are
-single-purpose strings (`thaalam.settings.v1`, `thaalam.presets.v1`). Unknown
-JSON fields are ignored and every decoded settings object is normalized, so a
+single-purpose strings (`thaalam.settings.v1`, `thaalam.presets.v1`,
+`thaalam.practice.v1`). Unknown JSON fields are ignored and every decoded value
+is normalized, so a
 future schema can add fields without breaking old installs. Invalid JSON falls
 back to defaults rather than crashing.
 
-## 9. UI state flow
+## 10. UI state flow
 
 Android:
 
@@ -339,14 +394,16 @@ AVAudioSourceNode render ──▶ EngineTickSnapshot (lock)
 (0–300 ms). Audio scheduling is never delayed; only the visual pulse is, so a
 Bluetooth listener sees the flash when they hear the click.
 
-## 10. Testing strategy
+## 11. Testing strategy
 
 - **Shared unit tests** cover meter normalization, primary and layer pattern
   offsets and swing, polyrhythm/polymeter compilation, kalam/kalai/eduppu
   compilation and long-run drift, gesture mapping, a deterministic frame-level
-  timing simulator, gap/stochastic/ramp logic, tap tempo, preset round-trips
-  including layers and tala playback, all 35 Suladi talas, khali markers, theka
-  lengths, and the Swift interop mutations.
+  timing simulator, gap/stochastic/ramp logic, Gap 2.0 patterns/fade/sam
+  protection, practice stats across midnight and time zones, goal/streak
+  calculation, tap matching and summaries, practice JSON/CSV round-trips, tap
+  tempo, preset round-trips including layers and tala playback, all 35 Suladi
+  talas, khali markers, theka lengths, and the Swift interop mutations.
 - **Android lint** runs as a build gate; the app currently has warnings only.
 - **Manual device/simulator checks** verify layout, transport, tala playback,
   adding/removing layers while playing, background service, and light/dark
@@ -355,7 +412,7 @@ Bluetooth listener sees the flash when they hear the click.
   emulator and simulator audio paths are not representative of real output
   latency.
 
-## 11. Known limitations
+## 12. Known limitations
 
 - Polyrhythm, polymeter and the subdivision mixer are implemented. Chained
   mixed-meter songs and setlists are not yet implemented; the engine and tala
@@ -368,6 +425,17 @@ Bluetooth listener sees the flash when they hear the click.
 - No MIDI, Ableton Link or network sync.
 - No practice log or microphone-based rhythm grading.
 - No custom click sample import; the five synthesized timbres are built in.
+- The practice log is written on stop; a force-killed process loses the active
+  session. This is deliberate: inventing an end time would corrupt the history.
+- Tap targets depend on the platform output-latency estimate plus user
+  calibration. Android caches the estimate at controller start, so a route
+  change (speaker → Bluetooth) needs a fresh calibration; iOS queries
+  `outputLatency` on each target. A hardware loopback calibration is still
+  recommended before treating absolute milliseconds as authoritative.
+- Tap targets are registered only for audible main beats, so silent gap bars
+  and muted pulses do not become invisible targets.
+- Count-in voice and the microphone coach are not implemented. The microphone
+  spike and its no-go criteria are documented in `docs/microphone-spike.md`.
 - Background behaviour on iOS depends on the audio background mode and the
   session being active; a full device test is required before App Store release.
 - The iOS UI uses fixed-size type for the stage-oriented layout; a full Dynamic

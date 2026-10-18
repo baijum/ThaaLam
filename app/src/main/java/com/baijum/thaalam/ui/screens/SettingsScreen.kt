@@ -124,6 +124,35 @@ fun SettingsScreen(
         }
 
         item {
+            SectionCard(
+                title = "Tap calibration",
+                subtitle = "Final touch-to-sound correction for the accuracy grader",
+                trailing = {
+                    Text(
+                        text = "${preferences.tapCalibrationMs} ms",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
+            ) {
+                Slider(
+                    value = preferences.tapCalibrationMs.toFloat(),
+                    onValueChange = { viewModel.setTapCalibration((it / 10f).roundToInt() * 10) },
+                    valueRange = -100f..200f,
+                    steps = 29,
+                    colors = thaaSliderColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "The engine estimates output latency. Nudge this if the grader says your taps are " +
+                        "consistently early (raise it) or late (lower it).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        item {
             SectionCard(title = "Current engine") {
                 InfoRow("Tempo", "${settings.bpm.roundToInt()} BPM")
                 InfoRow("Meter", "${settings.meter.label} · ${settings.meter.grouping.joinToString(" + ")}")

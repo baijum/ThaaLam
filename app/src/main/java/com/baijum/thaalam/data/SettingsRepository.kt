@@ -9,6 +9,8 @@ data class UiPreferences(
     val flashEnabled: Boolean = false,
     val keepScreenOn: Boolean = true,
     val visualLatencyMs: Int = 0,
+    /** Manual correction for touch-to-audio latency in the tap grader. */
+    val tapCalibrationMs: Int = 0,
 )
 
 /** Persists the live metronome configuration as shared JSON. */
@@ -27,6 +29,7 @@ class SettingsRepository(context: Context) {
         flashEnabled = prefs.getBoolean(KEY_FLASH, false),
         keepScreenOn = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true),
         visualLatencyMs = prefs.getInt(KEY_VISUAL_LATENCY, 0).coerceIn(0, 300),
+        tapCalibrationMs = prefs.getInt(KEY_TAP_CALIBRATION, 0).coerceIn(-100, 200),
     )
 
     fun saveUiPreferences(preferences: UiPreferences) {
@@ -35,6 +38,7 @@ class SettingsRepository(context: Context) {
             .putBoolean(KEY_FLASH, preferences.flashEnabled)
             .putBoolean(KEY_KEEP_SCREEN_ON, preferences.keepScreenOn)
             .putInt(KEY_VISUAL_LATENCY, preferences.visualLatencyMs.coerceIn(0, 300))
+            .putInt(KEY_TAP_CALIBRATION, preferences.tapCalibrationMs.coerceIn(-100, 200))
             .apply()
     }
 
@@ -45,5 +49,6 @@ class SettingsRepository(context: Context) {
         const val KEY_FLASH = "flash"
         const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         const val KEY_VISUAL_LATENCY = "visual_latency_ms"
+        const val KEY_TAP_CALIBRATION = "tap_calibration_ms"
     }
 }

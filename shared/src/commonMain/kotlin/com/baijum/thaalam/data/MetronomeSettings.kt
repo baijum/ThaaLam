@@ -1,5 +1,6 @@
 package com.baijum.thaalam.data
 
+import com.baijum.thaalam.domain.PracticeLogic
 import com.baijum.thaalam.domain.MetronomeStateLogic
 import kotlinx.serialization.Serializable
 
@@ -36,6 +37,17 @@ data class MetronomeSettings(
     val gapPlayBars: Int = 0,
     /** Deterministic gap trainer: number of silent bars after [gapPlayBars]. */
     val gapSilentBars: Int = 0,
+    /**
+     * Gap 2.0 custom bar pattern. `true` is a play bar, `false` a silent bar.
+     * Empty means the legacy [gapPlayBars]/[gapSilentBars] cycle.
+     */
+    val gapPattern: List<Boolean> = emptyList(),
+    /** Fade the click over the last N play bars before a gap. 0 is a hard cut. */
+    val gapFadeBars: Int = 0,
+    /** Hard constraint on consecutive silent bars in [gapPattern]. */
+    val gapMaxSilentBars: Int = 4,
+    /** Keep a soft sam click on silent bars so the player can re-enter. */
+    val gapKeepSam: Boolean = false,
     /** Stochastic beat muting, 0..1. */
     val muteProbability: Double = 0.0,
     /** Protects the sam / downbeat from stochastic muting and gap drops. */
@@ -53,7 +65,8 @@ data class MetronomeSettings(
      */
     val talaPlayback: TalaPlayback = TalaPlayback(),
 ) {
-    val isGapTraining: Boolean get() = gapPlayBars > 0 && gapSilentBars > 0
+    val isGapTraining: Boolean
+        get() = gapPattern.isNotEmpty() || (gapPlayBars > 0 && gapSilentBars > 0)
 
     /**
      * The akshara rate actually sent to the audio engine: the base tempo scaled
@@ -92,6 +105,9 @@ data class MetronomeSettings(
             countInBars = countInBars.coerceIn(0, 4),
             gapPlayBars = gapPlayBars.coerceIn(0, 64),
             gapSilentBars = gapSilentBars.coerceIn(0, 64),
+            gapPattern = PracticeLogic.normalizeGapPattern(gapPattern, gapMaxSilentBars),
+            gapFadeBars = gapFadeBars.coerceIn(0, 8),
+            gapMaxSilentBars = gapMaxSilentBars.coerceIn(1, 16),
             muteProbability = muteProbability.coerceIn(0.0, 1.0),
             rampTargetBpm = rampTargetBpm.coerceIn(MIN_BPM, MAX_BPM),
             rampStepBpm = rampStepBpm.coerceIn(0.1, 20.0),

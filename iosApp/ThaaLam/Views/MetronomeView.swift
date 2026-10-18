@@ -489,28 +489,68 @@ struct MetronomeView: View {
 
                 if practiceExpanded {
                     Divider().overlay(ThaaLamTheme.border)
-                    StepperRow(
-                        label: "Gap · play bars",
-                        supportingText: "Click for this many bars, then go silent",
-                        value: "\(vm.settings.gapPlayBars)"
-                    ) {
-                        vm.setGap(playBars: Int(vm.settings.gapPlayBars) - 1,
-                                  silentBars: Int(vm.settings.gapSilentBars))
-                    } onIncrease: {
-                        vm.setGap(playBars: Int(vm.settings.gapPlayBars) + 1,
-                                  silentBars: Int(vm.settings.gapSilentBars))
+                    if vm.settings.gapPattern.isEmpty {
+                        StepperRow(
+                            label: "Gap · play bars",
+                            supportingText: "Click for this many bars, then go silent",
+                            value: "\(vm.settings.gapPlayBars)"
+                        ) {
+                            vm.setGap(playBars: Int(vm.settings.gapPlayBars) - 1,
+                                      silentBars: Int(vm.settings.gapSilentBars))
+                        } onIncrease: {
+                            vm.setGap(playBars: Int(vm.settings.gapPlayBars) + 1,
+                                      silentBars: Int(vm.settings.gapSilentBars))
+                        }
+                        StepperRow(
+                            label: "Gap · silent bars",
+                            supportingText: "Keep the clock running without clicks",
+                            value: "\(vm.settings.gapSilentBars)"
+                        ) {
+                            vm.setGap(playBars: Int(vm.settings.gapPlayBars),
+                                      silentBars: Int(vm.settings.gapSilentBars) - 1)
+                        } onIncrease: {
+                            vm.setGap(playBars: Int(vm.settings.gapPlayBars),
+                                      silentBars: Int(vm.settings.gapSilentBars) + 1)
+                        }
+                        Button("Use a custom play/gap pattern") {
+                            vm.setGapPattern(csv: seedGapPatternCsv())
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ThaaLamTheme.saffron)
+                    } else {
+                        gapPatternEditor
+                        Button("Back to play/silent bars") {
+                            vm.setGapPattern(csv: "")
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ThaaLamTheme.saffron)
                     }
                     StepperRow(
-                        label: "Gap · silent bars",
-                        supportingText: "Keep the clock running without clicks",
-                        value: "\(vm.settings.gapSilentBars)"
+                        label: "Gap · fade bars",
+                        supportingText: "Fade the click over the last play bars before silence",
+                        value: "\(vm.settings.gapFadeBars)"
                     ) {
-                        vm.setGap(playBars: Int(vm.settings.gapPlayBars),
-                                  silentBars: Int(vm.settings.gapSilentBars) - 1)
+                        vm.setGapFadeBars(Int(vm.settings.gapFadeBars) - 1)
                     } onIncrease: {
-                        vm.setGap(playBars: Int(vm.settings.gapPlayBars),
-                                  silentBars: Int(vm.settings.gapSilentBars) + 1)
+                        vm.setGapFadeBars(Int(vm.settings.gapFadeBars) + 1)
                     }
+                    StepperRow(
+                        label: "Gap · max silent",
+                        supportingText: "Repairs a custom pattern that stays silent too long",
+                        value: "\(vm.settings.gapMaxSilentBars)"
+                    ) {
+                        vm.setGapMaxSilentBars(Int(vm.settings.gapMaxSilentBars) - 1)
+                    } onIncrease: {
+                        vm.setGapMaxSilentBars(Int(vm.settings.gapMaxSilentBars) + 1)
+                    }
+                    ToggleRow(
+                        title: "Keep sam in gaps",
+                        subtitle: "A soft downbeat still marks the cycle while the rest is silent",
+                        isOn: Binding(
+                            get: { vm.settings.gapKeepSam },
+                            set: { vm.setGapKeepSam($0) }
+                        )
+                    )
                     if vm.settings.isGapTraining {
                         Button("Turn gap training off") {
                             vm.setGap(playBars: 0, silentBars: 0)
@@ -609,6 +649,40 @@ struct MetronomeView: View {
         }
     }
 
+    private var gapPatternEditor: some View {
+        let pattern = parseGapPattern(vm.gapPatternCsv())
+        return VStack(alignment: .leading, spacing: 6) {
+            FieldLabel("Custom pattern")
+            FlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(Array(pattern.enumerated()), id: \.offset) { index, play in
+                    ChipButton(label: play ? "Play" : "Gap", selected: play) {
+                        var updated = pattern
+                        updated[index].toggle()
+                        vm.setGapPattern(csv: updated.map { $0 ? "1" : "0" }.joined(separator: ","))
+                    }
+                }
+            }
+            Text("Tap a bar to flip it between play and gap; the pattern repeats. The first bar of the cycle is a downbeat re-entry.")
+                .font(.system(size: 12))
+                .foregroundStyle(ThaaLamTheme.textSecondary)
+        }
+    }
+
+    private func parseGapPattern(_ csv: String) -> [Bool] {
+        csv.split(separator: ",").compactMap { Int($0) }.map { $0 != 0 }
+    }
+
+    private func seedGapPatternCsv() -> String {
+        let legacy: [Bool]
+        if vm.settings.gapPlayBars > 0 && vm.settings.gapSilentBars > 0 {
+            legacy = Array(repeating: true, count: Int(vm.settings.gapPlayBars))
+                + Array(repeating: false, count: Int(vm.settings.gapSilentBars))
+        } else {
+            legacy = [true, true, false, true, true, false]
+        }
+        return legacy.prefix(8).map { $0 ? "1" : "0" }.joined(separator: ",")
+    }
+
     private var soundCard: some View {
         SectionCard(
             title: "Sound",
@@ -676,7 +750,15 @@ struct MetronomeView: View {
     private var practiceSummary: String {
         var parts = ["\(vm.settings.countInBars) count-in"]
         if vm.settings.isGapTraining {
-            parts.append("\(vm.settings.gapPlayBars) on / \(vm.settings.gapSilentBars) off")
+            if vm.settings.gapPattern.isEmpty {
+                parts.append("\(vm.settings.gapPlayBars) on / \(vm.settings.gapSilentBars) off")
+            } else {
+                let pattern = parseGapPattern(vm.gapPatternCsv())
+                parts.append("\(pattern.filter { $0 }.count) play / \(pattern.filter { !$0 }.count) gap")
+            }
+            if vm.settings.gapFadeBars > 0 {
+                parts.append("\(vm.settings.gapFadeBars)-bar fade")
+            }
         }
         if vm.settings.muteProbability > 0 {
             parts.append("\(Int((vm.settings.muteProbability * 100).rounded()))% mute")

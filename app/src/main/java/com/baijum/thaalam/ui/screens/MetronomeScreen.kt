@@ -213,6 +213,10 @@ fun MetronomeScreen(
                     onToggleExpanded = { practiceExpanded = !practiceExpanded },
                     onCountIn = viewModel::setCountInBars,
                     onGap = viewModel::setGapTrainer,
+                    onGapPattern = viewModel::setGapPattern,
+                    onGapFade = viewModel::setGapFadeBars,
+                    onGapMaxSilent = viewModel::setGapMaxSilentBars,
+                    onGapKeepSam = viewModel::setGapKeepSam,
                     onMuteProbability = viewModel::setMuteProbability,
                     onProtectFirst = viewModel::setProtectFirstBeat,
                     onRampEnabled = viewModel::setRampEnabled,
@@ -1125,6 +1129,10 @@ private fun PracticeCard(
     onToggleExpanded: () -> Unit,
     onCountIn: (Int) -> Unit,
     onGap: (Int, Int) -> Unit,
+    onGapPattern: (List<Boolean>) -> Unit,
+    onGapFade: (Int) -> Unit,
+    onGapMaxSilent: (Int) -> Unit,
+    onGapKeepSam: (Boolean) -> Unit,
     onMuteProbability: (Double) -> Unit,
     onProtectFirst: (Boolean) -> Unit,
     onRampEnabled: (Boolean) -> Unit,
@@ -1154,19 +1162,52 @@ private fun PracticeCard(
         AnimatedVisibility(visible = expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Spacer(modifier = Modifier.height(2.dp))
+                if (settings.gapPattern.isEmpty()) {
+                    Stepper(
+                        label = "Gap · play bars",
+                        valueLabel = "${settings.gapPlayBars}",
+                        supportingText = "Click for this many bars, then go silent",
+                        onDecrease = { onGap((settings.gapPlayBars - 1).coerceAtLeast(0), settings.gapSilentBars) },
+                        onIncrease = { onGap((settings.gapPlayBars + 1).coerceAtMost(16), settings.gapSilentBars) },
+                    )
+                    Stepper(
+                        label = "Gap · silent bars",
+                        valueLabel = "${settings.gapSilentBars}",
+                        supportingText = "Keep the clock running without clicks",
+                        onDecrease = { onGap(settings.gapPlayBars, (settings.gapSilentBars - 1).coerceAtLeast(0)) },
+                        onIncrease = { onGap(settings.gapPlayBars, (settings.gapSilentBars + 1).coerceAtMost(16)) },
+                    )
+                    TextButton(onClick = { onGapPattern(seedGapPattern(settings)) }) {
+                        Text("Use a custom play/gap pattern")
+                    }
+                } else {
+                    GapPatternEditor(
+                        pattern = settings.gapPattern,
+                        onPattern = onGapPattern,
+                    )
+                    TextButton(onClick = { onGapPattern(emptyList()) }) {
+                        Text("Back to play/silent bars")
+                    }
+                }
                 Stepper(
-                    label = "Gap · play bars",
-                    valueLabel = "${settings.gapPlayBars}",
-                    supportingText = "Click for this many bars, then go silent",
-                    onDecrease = { onGap((settings.gapPlayBars - 1).coerceAtLeast(0), settings.gapSilentBars) },
-                    onIncrease = { onGap((settings.gapPlayBars + 1).coerceAtMost(16), settings.gapSilentBars) },
+                    label = "Gap · fade bars",
+                    valueLabel = "${settings.gapFadeBars}",
+                    supportingText = "Fade the click over the last play bars before silence",
+                    onDecrease = { onGapFade((settings.gapFadeBars - 1).coerceAtLeast(0)) },
+                    onIncrease = { onGapFade((settings.gapFadeBars + 1).coerceAtMost(8)) },
                 )
                 Stepper(
-                    label = "Gap · silent bars",
-                    valueLabel = "${settings.gapSilentBars}",
-                    supportingText = "Keep the clock running without clicks",
-                    onDecrease = { onGap(settings.gapPlayBars, (settings.gapSilentBars - 1).coerceAtLeast(0)) },
-                    onIncrease = { onGap(settings.gapPlayBars, (settings.gapSilentBars + 1).coerceAtMost(16)) },
+                    label = "Gap · max silent",
+                    valueLabel = "${settings.gapMaxSilentBars}",
+                    supportingText = "Repairs a custom pattern that stays silent too long",
+                    onDecrease = { onGapMaxSilent((settings.gapMaxSilentBars - 1).coerceAtLeast(1)) },
+                    onIncrease = { onGapMaxSilent((settings.gapMaxSilentBars + 1).coerceAtMost(16)) },
+                )
+                ToggleRow(
+                    title = "Keep sam in gaps",
+                    subtitle = "A soft downbeat still marks the cycle while the rest is silent",
+                    checked = settings.gapKeepSam,
+                    onCheckedChange = onGapKeepSam,
                 )
                 if (settings.isGapTraining) {
                     TextButton(onClick = { onGap(0, 0) }) { Text("Turn gap training off") }
@@ -1417,13 +1458,58 @@ private fun parseGrouping(text: String): List<Int>? {
 private fun practiceSummary(settings: MetronomeSettings): String {
     val parts = mutableListOf("${settings.countInBars} count-in")
     if (settings.isGapTraining) {
-        parts += "${settings.gapPlayBars} on / ${settings.gapSilentBars} off"
+        parts += if (settings.gapPattern.isEmpty()) {
+            "${settings.gapPlayBars} on / ${settings.gapSilentBars} off"
+        } else {
+            "${settings.gapPattern.count { it }} play / ${settings.gapPattern.count { !it }} gap"
+        }
+        if (settings.gapFadeBars > 0) parts += "${settings.gapFadeBars}-bar fade"
     }
     if (settings.muteProbability > 0.0) {
         parts += "${(settings.muteProbability * 100).roundToInt()}% mute"
     }
     if (settings.rampEnabled) parts += "ramp to ${TempoMath.formatBpm(settings.rampTargetBpm)}"
     return parts.joinToString(" · ")
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GapPatternEditor(
+    pattern: List<Boolean>,
+    onPattern: (List<Boolean>) -> Unit,
+) {
+    FieldLabel("Custom pattern")
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        pattern.take(8).forEachIndexed { index, play ->
+            FilterChip(
+                colors = thaaFilterChipColors(),
+                selected = play,
+                onClick = {
+                    val updated = pattern.toMutableList()
+                    if (index in updated.indices) {
+                        updated[index] = !updated[index]
+                    }
+                    onPattern(updated)
+                },
+                label = { Text(if (play) "Play" else "Gap") },
+            )
+        }
+    }
+    Text(
+        text = "Tap a bar to flip it between play and gap; the pattern repeats. " +
+            "The first bar of the cycle is a downbeat re-entry.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun seedGapPattern(settings: MetronomeSettings): List<Boolean> {
+    val legacy = if (settings.gapPlayBars > 0 && settings.gapSilentBars > 0) {
+        List(settings.gapPlayBars) { true } + List(settings.gapSilentBars) { false }
+    } else {
+        listOf(true, true, false, true, true, false)
+    }
+    return legacy.take(8).ifEmpty { listOf(true, true, false) }
 }
 
 private fun swingLabel(percent: Double): String = when {

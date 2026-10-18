@@ -25,6 +25,82 @@ object PracticeLogic {
     }
 
     /**
+     * Gap 2.0: true when [barIndex] is silent, using the custom pattern when
+     * present and the legacy play/silent cycle otherwise.
+     */
+    fun isGapSilentBar(barIndex: Int, settings: MetronomeSettings): Boolean {
+        val cycle = gapCycle(settings)
+        if (cycle.isEmpty() || barIndex <= 0) return false
+        val position = (barIndex - 1) % cycle.size
+        return !cycle[position]
+    }
+
+    /**
+     * The deterministic play/gap cycle, or an empty list when gap training is
+     * off. `true` means an audible bar.
+     */
+    fun gapCycle(settings: MetronomeSettings): List<Boolean> {
+        if (settings.gapPattern.isNotEmpty()) return settings.gapPattern
+        if (settings.gapPlayBars <= 0 || settings.gapSilentBars <= 0) return emptyList()
+        return List(settings.gapPlayBars) { true } + List(settings.gapSilentBars) { false }
+    }
+
+    /**
+     * Click gain for a bar during gap training. Play bars normally return 1.0;
+     * the last [MetronomeSettings.gapFadeBars] play bars before a gap fade down
+     * linearly. Silent bars return 0.0 (the sam may still be protected by the
+     * engine).
+     */
+    fun gapGainForBar(barIndex: Int, settings: MetronomeSettings): Float {
+        val cycle = gapCycle(settings)
+        if (cycle.isEmpty() || barIndex <= 0) return 1f
+        val position = (barIndex - 1) % cycle.size
+        if (!cycle[position]) return 0f
+        val fadeBars = settings.gapFadeBars.coerceIn(0, 8)
+        if (fadeBars <= 0) return 1f
+        var remainingPlayBars = 0
+        var offset = 1
+        while (offset <= cycle.size && cycle[(position + offset) % cycle.size]) {
+            remainingPlayBars++
+            offset++
+        }
+        if (offset > cycle.size) return 1f // the pattern never actually gaps
+        val barsUntilGap = remainingPlayBars + 1
+        if (barsUntilGap > fadeBars) return 1f
+        return barsUntilGap.toFloat() / (fadeBars + 1).toFloat()
+    }
+
+    /**
+     * Validates a custom gap pattern: bounded length, no all-silent cycle, and
+     * no more than [maxSilentBars] consecutive silent bars. Repairs by turning
+     * the offending bar into a play bar.
+     */
+    fun normalizeGapPattern(pattern: List<Boolean>, maxSilentBars: Int): List<Boolean> {
+        if (pattern.isEmpty()) return emptyList()
+        val safeMax = maxSilentBars.coerceIn(1, 16)
+        val result = pattern.take(MAX_GAP_PATTERN).toMutableList()
+        var silentRun = 0
+        for (index in result.indices) {
+            if (result[index]) {
+                silentRun = 0
+            } else {
+                silentRun++
+                if (silentRun > safeMax) {
+                    result[index] = true
+                    silentRun = 0
+                }
+            }
+        }
+        if (result.none { it }) result[0] = true
+        return result
+    }
+
+    /** Soft sam click used on a silent bar when protection is enabled. */
+    const val GAP_SAM_GAIN: Float = 0.45f
+
+    private const val MAX_GAP_PATTERN = 16
+
+    /**
      * Stochastic mute decision for one tick. [random] is expected in [0, 1).
      * The first beat of the bar can be protected so the pulse never disappears
      * completely at high mute percentages.

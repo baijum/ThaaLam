@@ -5,10 +5,12 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.baijum.thaalam.audio.MetronomeController
 import com.baijum.thaalam.audio.PlaybackState
+import com.baijum.thaalam.audio.TapState
 import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
+import com.baijum.thaalam.data.PracticeData
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
@@ -39,6 +41,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val uiPreferences: StateFlow<UiPreferences> = controller.uiPreferences
     val tapState: StateFlow<TapTempoResult?> = controller.tapState
     val presets: StateFlow<List<MetronomePreset>> = controller.presets
+    val practice: StateFlow<PracticeData> = controller.practice
+    val tapAccuracy: StateFlow<TapState> = controller.tapAccuracy
 
     val currentTala: StateFlow<Tala?> = controller.settings
         .map { TalaLibrary.find(it.talaId) }
@@ -66,6 +70,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetTapTempo() = controller.resetTapTempo()
 
+    // Practice
+    fun gradeTap(hostTimeMs: Long): Double? = controller.gradeTap(hostTimeMs)
+    fun setTapCalibration(ms: Int) = controller.setTapCalibration(ms)
+    fun setPracticeGoals(dailyMinutes: Int, weeklyMinutes: Int) =
+        controller.setPracticeGoals(dailyMinutes, weeklyMinutes)
+    fun clearPracticeHistory() = controller.clearPracticeHistory()
+    fun practiceJson(): String = controller.practiceJson()
+    fun practiceCsv(): String = controller.practiceCsv()
+
     // Meter and groove
     fun setMeter(meter: Meter) = controller.setMeter(meter)
     fun setSubdivision(subdivision: Subdivision) = controller.setSubdivision(subdivision)
@@ -77,6 +90,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setCountInBars(bars: Int) = controller.setCountInBars(bars)
     fun setGapTrainer(playBars: Int, silentBars: Int) =
         controller.setGapTrainer(playBars, silentBars)
+    fun setGapPattern(pattern: List<Boolean>) = controller.setGapPattern(pattern)
+    fun setGapFadeBars(bars: Int) = controller.setGapFadeBars(bars)
+    fun setGapMaxSilentBars(bars: Int) = controller.setGapMaxSilentBars(bars)
+    fun setGapKeepSam(keep: Boolean) = controller.setGapKeepSam(keep)
     fun setMuteProbability(probability: Double) = controller.setMuteProbability(probability)
     fun setProtectFirstBeat(protect: Boolean) = controller.setProtectFirstBeat(protect)
     fun setRampEnabled(enabled: Boolean) = controller.setRampEnabled(enabled)

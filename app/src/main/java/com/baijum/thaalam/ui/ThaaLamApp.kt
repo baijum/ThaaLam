@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -35,6 +36,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.baijum.thaalam.ui.screens.MetronomeScreen
+import com.baijum.thaalam.ui.screens.PracticeScreen
 import com.baijum.thaalam.ui.screens.PresetsScreen
 import com.baijum.thaalam.ui.screens.SettingsScreen
 import com.baijum.thaalam.ui.screens.TalasScreen
@@ -45,6 +47,7 @@ import com.baijum.thaalam.viewmodel.MainViewModel
 private enum class Tab(val label: String, val icon: ImageVector) {
     METRONOME("Metronome", Icons.Filled.GraphicEq),
     TALAS("Talas", Icons.Filled.MusicNote),
+    PRACTICE("Practice", Icons.Filled.Insights),
     PRESETS("Presets", Icons.Filled.Bookmarks),
     SETTINGS("Settings", Icons.Filled.Settings),
 }
@@ -105,6 +108,10 @@ fun ThaaLamApp() {
                         Tab.TALAS -> TalasScreen(
                             viewModel = viewModel,
                             onOpenMetronome = { tab = 0 },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        Tab.PRACTICE -> PracticeScreen(
+                            viewModel = viewModel,
                             modifier = Modifier.fillMaxSize(),
                         )
                         Tab.PRESETS -> PresetsScreen(

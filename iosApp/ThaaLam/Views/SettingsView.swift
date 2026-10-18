@@ -73,6 +73,31 @@ struct SettingsView: View {
                         }
                     }
 
+                    SectionCard(
+                        title: "Tap calibration",
+                        subtitle: "Final touch-to-sound correction for the accuracy grader",
+                        trailing: {
+                            Text("\(vm.uiPreferences.tapCalibrationMs) ms")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(ThaaLamTheme.saffron)
+                        }
+                    ) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { Double(vm.uiPreferences.tapCalibrationMs) },
+                                    set: { vm.setTapCalibration(Int(($0 / 10).rounded()) * 10) }
+                                ),
+                                in: -100...200,
+                                step: 10
+                            )
+                            .tint(ThaaLamTheme.saffron)
+                            Text("The engine estimates output latency. Nudge this if the grader says your taps are consistently early (raise it) or late (lower it).")
+                                .font(.system(size: 12))
+                                .foregroundStyle(ThaaLamTheme.textSecondary)
+                        }
+                    }
+
                     SectionCard(title: "Current engine") {
                         VStack(alignment: .leading, spacing: 8) {
                             InfoRow(label: "Tempo", value: "\(Int(vm.settings.bpm.rounded())) BPM")

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import QuartzCore
 import os
 import shared
 
@@ -15,6 +16,7 @@ struct PlaybackSnapshot: Equatable {
     var effectiveBpm = 0.0
     var gesture: PulseGesture = .none
     var baseBpm = 0.0
+    var hostTimeMs = 0.0
 
     static let idle = PlaybackSnapshot()
 }
@@ -32,6 +34,7 @@ struct EngineTickSnapshot {
     var countInRemaining = 0
     var bpm = 0.0
     var gesture: PulseGesture = .none
+    var hostTimeMs = 0.0
 
     static let idle = EngineTickSnapshot()
 }
@@ -125,6 +128,9 @@ private struct EngineConfig {
     let countInBars: Int
     let gapPlayBars: Int
     let gapSilentBars: Int
+    let gapCycle: [Bool]
+    let gapFadeBars: Int
+    let gapKeepSam: Bool
     let muteProbability: Double
     let protectFirstBeat: Bool
     let rampEnabled: Bool
@@ -142,6 +148,9 @@ private struct EngineConfig {
         countInBars: 0,
         gapPlayBars: 0,
         gapSilentBars: 0,
+        gapCycle: [],
+        gapFadeBars: 0,
+        gapKeepSam: true,
         muteProbability: 0,
         protectFirstBeat: true,
         rampEnabled: false,
@@ -163,6 +172,9 @@ private struct EngineConfig {
             countInBars: Int(settings.countInBars),
             gapPlayBars: Int(settings.gapPlayBars),
             gapSilentBars: Int(settings.gapSilentBars),
+            gapCycle: settings.gapPattern.map { $0.boolValue },
+            gapFadeBars: Int(settings.gapFadeBars),
+            gapKeepSam: settings.gapKeepSam,
             muteProbability: settings.muteProbability,
             protectFirstBeat: settings.protectFirstBeat,
             rampEnabled: settings.rampEnabled,
@@ -327,11 +339,17 @@ private final class RenderState {
 
             let gapSilent = !isCountIn && Self.isGapSilent(
                 bar: musicalBar,
-                playBars: config.gapPlayBars,
-                silentBars: config.gapSilentBars
+                config: config
             )
+            let gapGain = isCountIn ? 1.0 : Self.gapGain(bar: musicalBar, config: config)
+            let keepSam = gapSilent
+                && config.gapKeepSam
+                && runtime.isPrimary
+                && step.beat == 0
+                && step.sub == 0
             let muted: Bool = {
                 if !runtime.isPrimary { return gapSilent }
+                if keepSam { return false }
                 return Self.shouldMute(
                     random: nextRandom(),
                     probability: config.muteProbability,
@@ -340,13 +358,14 @@ private final class RenderState {
                     isGapSilent: gapSilent
                 )
             }()
+            let practiceGain = keepSam ? 0.45 : gapGain
             let audible = liveKind.isAudible && !muted && (!isCountIn || runtime.isPrimary)
             if audible {
                 synth.trigger(
                     sound: runtime.pattern.sound,
                     kind: liveKind,
                     isSubdivision: !step.isMain,
-                    volume: config.volume * runtime.pattern.gain,
+                    volume: config.volume * runtime.pattern.gain * Float(practiceGain),
                     startFrame: offset,
                     gesture: step.gesture
                 )
@@ -365,7 +384,8 @@ private final class RenderState {
                     isCountIn: isCountIn,
                     countInRemaining: max(0, config.countInBars - barIndex + 1),
                     bpm: currentBpm,
-                    gesture: step.gesture
+                    gesture: step.gesture,
+                    hostTimeMs: CACurrentMediaTime() * 1_000.0
                 )
                 tickLock.withLockUnchecked { $0 = snapshot }
             }
@@ -490,10 +510,31 @@ private final class RenderState {
         return Double((rng >> 33) & 0x7FFF_FFFF) / Double(0x8000_0000)
     }
 
-    private static func isGapSilent(bar: Int, playBars: Int, silentBars: Int) -> Bool {
-        guard playBars > 0, silentBars > 0, bar > 0 else { return false }
-        let cycle = playBars + silentBars
-        return (bar - 1) % cycle >= playBars
+    private static func isGapSilent(bar: Int, config: EngineConfig) -> Bool {
+        guard bar > 0 else { return false }
+        let cycle = config.gapCycle
+        if cycle.isEmpty { return false }
+        return !cycle[(bar - 1) % cycle.count]
+    }
+
+    private static func gapGain(bar: Int, config: EngineConfig) -> Double {
+        guard bar > 0 else { return 1.0 }
+        let cycle = config.gapCycle
+        if cycle.isEmpty { return 1.0 }
+        let position = (bar - 1) % cycle.count
+        if !cycle[position] { return 0.0 }
+        let fadeBars = min(max(config.gapFadeBars, 0), 8)
+        if fadeBars <= 0 { return 1.0 }
+        var remainingPlayBars = 0
+        var offset = 1
+        while offset <= cycle.count && cycle[(position + offset) % cycle.count] {
+            remainingPlayBars += 1
+            offset += 1
+        }
+        if offset > cycle.count { return 1.0 }
+        let barsUntilGap = remainingPlayBars + 1
+        if barsUntilGap > fadeBars { return 1.0 }
+        return Double(barsUntilGap) / Double(fadeBars + 1)
     }
 
     private static func shouldMute(
@@ -539,6 +580,11 @@ final class MetronomeAudioEngine {
     private var revision: UInt64 = 0
     private var previewEngine: AVAudioEngine?
     private var previewPlayer: AVAudioPlayerNode?
+
+    /// Current hardware output latency used to align tap targets with sound.
+    var outputLatencyMs: Double {
+        AVAudioSession.sharedInstance().outputLatency * 1_000.0
+    }
 
     init() {
         configureSession(active: false)

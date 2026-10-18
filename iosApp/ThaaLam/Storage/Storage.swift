@@ -7,6 +7,7 @@ struct UiPreferences {
     var flashEnabled = false
     var keepScreenOn = true
     var visualLatencyMs = 0
+    var tapCalibrationMs = 0
 }
 
 /// Local-only persistence. Settings and presets are stored as the same JSON the
@@ -22,6 +23,8 @@ enum Storage {
         static let flash = "thaalam.flash"
         static let keepScreenOn = "thaalam.keepScreenOn"
         static let visualLatency = "thaalam.visualLatencyMs"
+        static let tapCalibration = "thaalam.tapCalibrationMs"
+        static let practice = "thaalam.practice.v1"
     }
 
     static func loadSettings() -> MetronomeSettings {
@@ -38,6 +41,14 @@ enum Storage {
 
     static func savePresets(_ presets: [MetronomePreset]) {
         defaults.set(PresetCodec.shared.encodePresets(presets: presets), forKey: Key.presets)
+    }
+
+    static func loadPractice() -> PracticeData {
+        PracticeCodec.shared.decode(raw: defaults.string(forKey: Key.practice))
+    }
+
+    static func savePractice(_ data: PracticeData) {
+        defaults.set(PracticeCodec.shared.encode(data: data), forKey: Key.practice)
     }
 
     static func loadOrSeedPresets() -> [MetronomePreset] {
@@ -61,6 +72,7 @@ enum Storage {
             prefs.keepScreenOn = defaults.bool(forKey: Key.keepScreenOn)
         }
         prefs.visualLatencyMs = min(max(defaults.integer(forKey: Key.visualLatency), 0), 300)
+        prefs.tapCalibrationMs = min(max(defaults.integer(forKey: Key.tapCalibration), -100), 200)
         return prefs
     }
 
@@ -69,5 +81,6 @@ enum Storage {
         defaults.set(prefs.flashEnabled, forKey: Key.flash)
         defaults.set(prefs.keepScreenOn, forKey: Key.keepScreenOn)
         defaults.set(prefs.visualLatencyMs, forKey: Key.visualLatency)
+        defaults.set(prefs.tapCalibrationMs, forKey: Key.tapCalibration)
     }
 }

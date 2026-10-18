@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.5.0 — Practice Intelligence
+
+### Added
+
+- Local practice log: each start-to-stop transport run records duration, base
+  and effective tempo, meter or tala, preset name when one was loaded, layer
+  count, count-in, practice modes and tap-accuracy summary.
+- Practice tab with today/weekly progress, a seven-day strip, streak count,
+  total time and best tempo per tala or preset.
+- Daily and weekly goals with local-midnight and time-zone-aware stats. Sessions
+  that cross midnight are split between the two days.
+- Tap-accuracy grader: taps are compared with the engine's main-beat targets on
+  the host clock, compensated for estimated output latency and a user
+  calibration. It reports signed bias, mean absolute error, early/late counts,
+  a 21-bucket histogram, rating and tendency.
+- Gap 2.0: deterministic custom play/gap bar patterns, configurable fade over
+  the last play bars, a maximum-silent-bar repair rule, and an optional soft sam
+  on silent bars for downbeat re-entry.
+- CSV and JSON export through the platform share sheet, plus a local-only clear
+  action. History is capped at 500 sessions.
+- Shared `PracticeSession`, `PracticeData`, `PracticeCodec`,
+  `PracticeStatsCalculator`, `TapGrader`, `PracticeFactory` and tests.
+
+### Changed
+
+- Both engines apply gap fade gain and the optional sam-protection click; gap
+  patterns are validated in shared Kotlin before reaching the audio thread.
+- Transport snapshots now carry host-clock timestamps for tap grading. Android
+  estimates output latency from the device buffer properties; iOS uses
+  `AVAudioSession.outputLatency`.
+- Tap calibration is a separate preference from visual latency calibration.
+
+### Deferred
+
+- Count-in voice: no bundled/licensed voice assets are available, so the
+  sample-accurate click count-in remains. The roadmap allows this deferral.
+- Microphone rhythm coach / LiveBPM: kept as a gated spike. The go/no-go and
+  criteria are documented in `docs/microphone-spike.md`; no microphone
+  permission was added.
+- Songs, setlists and stage mode (v0.4) remain deferred at the user's request.
+
+### Verification
+
+- 156 shared tests, including practice stats across midnight and time zones,
+  goal/streak calculation, tap matching and summaries, gap patterns, fade,
+  sam protection, JSON/CSV round-trips and a long-run gap drift test.
+- Android debug/release/lint and iOS Debug/Release simulator builds pass.
+- Manual checks on a Pixel 9 emulator and iPhone 17 Pro simulator: session
+  logging, goals, tap pad, tap summary persistence, gap pattern editor.
+
 ## 0.3.0 — Tala Mastery
 
 ### Added

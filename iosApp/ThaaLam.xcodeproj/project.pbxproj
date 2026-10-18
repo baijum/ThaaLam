@@ -13,6 +13,7 @@
 		558F731F3AD9DE8966D75398 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D9A6BDBDEB836B4E1590CE4 /* Theme.swift */; };
 		57F3E7E86444992F783553B3 /* PresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB30F9278E9B720CF457255E /* PresetsView.swift */; };
 		65E25B4AC374AEF07CD669AC /* ClickSynth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F1C7CFE1D4B61B6C37AF936 /* ClickSynth.swift */; };
+		74F4428EB67C0E2A4CCAA39A /* PracticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3E8F8861358A5D51A07B31 /* PracticeView.swift */; };
 		8B09FE0539DE157ED3FD7ABC /* ThaaLamApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 722FC017A835B99CEA93064F /* ThaaLamApp.swift */; };
 		8C8FFE4DFDCDA09D513E7D9E /* MetronomeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68B499380199B83E9D0DC91B /* MetronomeViewModel.swift */; };
 		8E124F6D5EC16C0EE3AF5347 /* MetronomeAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F44F59773EF4B2FBCA829A1 /* MetronomeAudioEngine.swift */; };
@@ -37,6 +38,7 @@
 		7E9DB1E990EB03EAD2AB5288 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7EB78E10E9F44E1E488929CF /* PulseTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseTypes.swift; sourceTree = "<group>"; };
 		9313646B7E11FDE092B80CAD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AF3E8F8861358A5D51A07B31 /* PracticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeView.swift; sourceTree = "<group>"; };
 		B0D78EC8F4CA3E0473BCB48C /* Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage.swift; sourceTree = "<group>"; };
 		BB30F9278E9B720CF457255E /* PresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetsView.swift; sourceTree = "<group>"; };
 		E0D44814127017D5FCA74B5E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -51,6 +53,7 @@
 				F0572D899209D736AEF7DB59 /* BeatGrid.swift */,
 				6980A39C500130F990D07E69 /* Components.swift */,
 				372BB5AE481E4BC7C8A5949A /* MetronomeView.swift */,
+				AF3E8F8861358A5D51A07B31 /* PracticeView.swift */,
 				BB30F9278E9B720CF457255E /* PresetsView.swift */,
 				61225FE5946C120D5E11F5A4 /* SettingsView.swift */,
 				E2BF0C4E898B166201E2372D /* TalasView.swift */,
@@ -213,6 +216,7 @@
 				8E124F6D5EC16C0EE3AF5347 /* MetronomeAudioEngine.swift in Sources */,
 				0BE1CE5A75827CA98BE46E54 /* MetronomeView.swift in Sources */,
 				8C8FFE4DFDCDA09D513E7D9E /* MetronomeViewModel.swift in Sources */,
+				74F4428EB67C0E2A4CCAA39A /* PracticeView.swift in Sources */,
 				57F3E7E86444992F783553B3 /* PresetsView.swift in Sources */,
 				03954382026FD65EFF610B02 /* PulseTypes.swift in Sources */,
 				D77233677D738764178FF64B /* SettingsView.swift in Sources */,

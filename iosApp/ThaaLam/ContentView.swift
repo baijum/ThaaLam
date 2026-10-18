@@ -11,10 +11,12 @@ struct ContentView: View {
         let initial: Int
         if args.contains("-talas") {
             initial = 1
-        } else if args.contains("-presets") {
+        } else if args.contains("-practice") {
             initial = 2
-        } else if args.contains("-settings") {
+        } else if args.contains("-presets") {
             initial = 3
+        } else if args.contains("-settings") {
+            initial = 4
         } else {
             initial = 0
         }
@@ -32,12 +34,15 @@ struct ContentView: View {
             TalasView(onOpenMetronome: { tab = 0 })
                 .tabItem { Label("Talas", systemImage: "music.note.list") }
                 .tag(1)
+            PracticeView()
+                .tabItem { Label("Practice", systemImage: "chart.bar.xaxis") }
+                .tag(2)
             PresetsView(onOpenMetronome: { tab = 0 })
                 .tabItem { Label("Presets", systemImage: "bookmark") }
-                .tag(2)
+                .tag(3)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(3)
+                .tag(4)
         }
         .tint(ThaaLamTheme.saffron)
         .onAppear {

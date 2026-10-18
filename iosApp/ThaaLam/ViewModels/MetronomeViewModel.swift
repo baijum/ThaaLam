@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import QuartzCore
 import SwiftUI
 import shared
 
@@ -8,6 +9,11 @@ import shared
 ///
 /// All mutation goes through the shared Kotlin validators (`SettingsMutations`)
 /// so iOS and Android cannot drift apart in what a setting means.
+struct LiveTapState {
+    var lastOffsetMs: Double?
+    var summary: TapAccuracySummary?
+}
+
 @MainActor
 final class MetronomeViewModel: ObservableObject {
     @Published private(set) var settings: MetronomeSettings
@@ -17,20 +23,30 @@ final class MetronomeViewModel: ObservableObject {
     @Published private(set) var tapState: TapTempoResult?
     @Published private(set) var uiPreferences: UiPreferences
     @Published private(set) var currentTala: Tala?
+    @Published private(set) var practiceData: PracticeData
+    @Published private(set) var tapAccuracy = LiveTapState()
     @Published var errorMessage: String?
 
     private let engine = MetronomeAudioEngine()
     private let tapDetector = TapTempoFactory.shared.create()
+    private let tapGrader = TapGraderFactory.shared.create()
     private let haptic = UIImpactFeedbackGenerator(style: .medium)
     private var pollTimer: Timer?
     private var lastTickID: UInt64 = 0
     private var visualGeneration = 0
     private var interruptionObserver: NSObjectProtocol?
+    private var sessionActive = false
+    private var sessionStartedEpochMs: Int64 = 0
+    private var sessionStartedHostMs = 0.0
+    private var sessionStartSettings: MetronomeSettings?
+    private var sessionPresetName: String?
+    private var activePresetName: String?
 
     init() {
         let loaded = Storage.loadSettings()
         settings = loaded
         presets = Storage.loadOrSeedPresets()
+        practiceData = Storage.loadPractice()
         uiPreferences = Storage.loadPreferences()
         currentTala = TalaLibrary.shared.find(id: loaded.talaId)
         engine.update(settings: loaded)
@@ -43,6 +59,27 @@ final class MetronomeViewModel: ObservableObject {
         if ProcessInfo.processInfo.arguments.contains("-autoplay") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.startPlayback()
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("-tapSmoke") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.startPlayback()
+            }
+            for index in 0..<6 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6 + Double(index) * 0.6) { [weak self] in
+                    _ = self?.gradeTap(atHostMs: CACurrentMediaTime() * 1_000.0)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.4) { [weak self] in
+                self?.stopPlayback()
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("-practiceSmoke") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.startPlayback()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.8) { [weak self] in
+                self?.stopPlayback()
             }
         }
         #endif
@@ -66,6 +103,14 @@ final class MetronomeViewModel: ObservableObject {
     }
 
     func startPlayback() {
+        guard !playback.isPlaying else { return }
+        sessionActive = true
+        sessionStartedEpochMs = Int64(Date().timeIntervalSince1970 * 1_000.0)
+        sessionStartedHostMs = CACurrentMediaTime() * 1_000.0
+        sessionStartSettings = settings
+        sessionPresetName = activePresetName
+        tapGrader.reset()
+        tapAccuracy = LiveTapState()
         visualGeneration += 1
         lastTickID = 0
         let started = engine.start(settings: settings)
@@ -85,6 +130,7 @@ final class MetronomeViewModel: ObservableObject {
     }
 
     func stopPlayback() {
+        finishSession()
         engine.stop()
         visualGeneration += 1
         playback = .idle
@@ -106,7 +152,8 @@ final class MetronomeViewModel: ObservableObject {
             countInRemaining: tick.countInRemaining,
             effectiveBpm: tick.bpm,
             gesture: tick.gesture,
-            baseBpm: settings.bpm
+            baseBpm: settings.bpm,
+            hostTimeMs: tick.hostTimeMs
         )
         playback = snapshot
 
@@ -124,6 +171,50 @@ final class MetronomeViewModel: ObservableObject {
         if tick.isMain && tick.audible && uiPreferences.hapticsEnabled {
             haptic.impactOccurred(intensity: hapticIntensity(for: tick.kind))
         }
+        if tick.isMain && !tick.isCountIn && tick.audible {
+            let target = tick.hostTimeMs
+                + engine.outputLatencyMs
+                + Double(uiPreferences.tapCalibrationMs)
+            tapGrader.addTarget(timeMs: target)
+        }
+    }
+
+    /// Grades a tap at a host-clock timestamp (milliseconds).
+    @discardableResult
+    func gradeTap(atHostMs: Double) -> Double? {
+        guard playback.isPlaying else { return nil }
+        let boxed = tapGrader.addTap(timeMs: atHostMs)
+        let offset = boxed?.doubleValue
+        tapAccuracy = LiveTapState(
+            lastOffsetMs: offset,
+            summary: tapGrader.summary()
+        )
+        return offset
+    }
+
+    private func finishSession() {
+        guard sessionActive else { return }
+        sessionActive = false
+        guard let started = sessionStartSettings else { return }
+        let duration = Int64(max(
+            0,
+            CACurrentMediaTime() * 1_000.0 - sessionStartedHostMs
+        ))
+        let summary = tapGrader.summary()
+        let session = PracticeFactory.shared.session(
+            id: "session-\(sessionStartedEpochMs)-\(Int64(duration))",
+            startedAtEpochMs: sessionStartedEpochMs,
+            endedAtEpochMs: Int64(Date().timeIntervalSince1970 * 1_000.0),
+            durationMs: duration,
+            start: started,
+            end: settings,
+            presetName: sessionPresetName,
+            tap: summary
+        )
+        practiceData = practiceData.withSession(session: session)
+        Storage.savePractice(practiceData)
+        sessionStartSettings = nil
+        tapAccuracy = LiveTapState(lastOffsetMs: nil, summary: summary)
     }
 
     private func startPolling() {
@@ -165,9 +256,10 @@ final class MetronomeViewModel: ObservableObject {
 
     // MARK: - Commit
 
-    private func commit(_ updated: MetronomeSettings) {
+    private func commit(_ updated: MetronomeSettings, presetName: String? = nil) {
         let normalized = updated.normalized()
         settings = normalized
+        activePresetName = presetName
         Storage.saveSettings(normalized)
         engine.update(settings: normalized)
         currentTala = TalaLibrary.shared.find(id: normalized.talaId)
@@ -499,10 +591,11 @@ final class MetronomeViewModel: ObservableObject {
         )
         presets.insert(preset, at: 0)
         Storage.savePresets(presets)
+        activePresetName = preset.name
     }
 
     func applyPreset(_ preset: MetronomePreset) {
-        commit(preset.settings)
+        commit(preset.settings, presetName: preset.name)
     }
 
     func deletePreset(_ preset: MetronomePreset) {
@@ -545,6 +638,64 @@ final class MetronomeViewModel: ObservableObject {
         updated.visualLatencyMs = min(max(milliseconds, 0), 300)
         uiPreferences = updated
         Storage.savePreferences(updated)
+    }
+
+    func setTapCalibration(_ milliseconds: Int) {
+        var updated = uiPreferences
+        updated.tapCalibrationMs = min(max(milliseconds, -100), 200)
+        uiPreferences = updated
+        Storage.savePreferences(updated)
+    }
+
+    // MARK: - Practice log and goals
+
+    func setPracticeGoals(dailyMinutes: Int, weeklyMinutes: Int) {
+        let goals = PracticeFactory.shared.goals(
+            dailyMinutes: Int32(dailyMinutes),
+            weeklyMinutes: Int32(weeklyMinutes)
+        )
+        practiceData = practiceData.withGoals(goals: goals)
+        Storage.savePractice(practiceData)
+    }
+
+    func clearPracticeHistory() {
+        practiceData = practiceData.cleared()
+        Storage.savePractice(practiceData)
+    }
+
+    func practiceJson() -> String {
+        PracticeCodec.shared.encode(data: practiceData)
+    }
+
+    func practiceCsv() -> String {
+        PracticeCodec.shared.toCsv(data: practiceData)
+    }
+
+    // MARK: - Gap 2.0
+
+    func setGapPattern(csv: String) {
+        commit(SettingsMutations.shared.setGapPatternCsv(settings: settings, csv: csv))
+    }
+
+    func setGapFadeBars(_ bars: Int) {
+        commit(SettingsMutations.shared.setGapFadeBars(settings: settings, bars: Int32(bars)))
+    }
+
+    func setGapMaxSilentBars(_ bars: Int) {
+        commit(
+            SettingsMutations.shared.setGapMaxSilentBars(
+                settings: settings,
+                bars: Int32(bars)
+            )
+        )
+    }
+
+    func setGapKeepSam(_ keep: Bool) {
+        commit(SettingsMutations.shared.setGapKeepSam(settings: settings, keep: keep))
+    }
+
+    func gapPatternCsv() -> String {
+        SettingsMutations.shared.gapPatternCsv(settings: settings)
     }
 
     func resetSettings() {
