@@ -43,6 +43,7 @@ private struct EngineVoice {
         let offset: Double
         let kind: PulseKind
         let isMain: Bool
+        let offsetMs: Double
     }
 
     let id: String
@@ -51,7 +52,6 @@ private struct EngineVoice {
     let accents: [PulseKind]
     let sound: ClickSound
     let gain: Float
-    let offsetFrames: Double
     let gridKey: Int
     let isPrimary: Bool
 
@@ -62,7 +62,6 @@ private struct EngineVoice {
         accents: [],
         sound: .click,
         gain: 1,
-        offsetFrames: 0,
         gridKey: 0,
         isPrimary: true
     )
@@ -78,7 +77,8 @@ private struct EngineVoice {
                     sub: Int(step.sub),
                     offset: step.offsetBeats,
                     kind: PulseKind(step.kind),
-                    isMain: step.isMainBeat
+                    isMain: step.isMainBeat,
+                    offsetMs: step.offsetMs
                 )
             )
         }
@@ -95,7 +95,6 @@ private struct EngineVoice {
             accents: voice.accentPattern.map { PulseKind($0) },
             sound: ClickSound(voice.soundSet),
             gain: voice.gain,
-            offsetFrames: voice.offsetMs * MetronomeAudioEngine.sampleRate / 1000.0,
             gridKey: Int(voice.gridKey),
             isPrimary: voice.isPrimary
         )
@@ -165,12 +164,10 @@ private final class VoiceRuntime {
     var stepIndex = 0
     var nextTickFrame = 0.0
     let isPrimary: Bool
-    var frameOffset: Double
 
-    init(pattern: EngineVoice, isPrimary: Bool, frameOffset: Double) {
+    init(pattern: EngineVoice, isPrimary: Bool) {
         self.pattern = pattern
         self.isPrimary = isPrimary
-        self.frameOffset = frameOffset
     }
 }
 
@@ -250,7 +247,12 @@ private final class RenderState {
             var chosenFrame = Double.greatestFiniteMagnitude
             for runtime in runtimes {
                 guard let runtime else { continue }
-                let frame = runtime.nextTickFrame + runtime.frameOffset
+                let stepOffsetMs = runtime.pattern.steps
+                    .indices.contains(runtime.stepIndex)
+                    ? runtime.pattern.steps[runtime.stepIndex].offsetMs
+                    : 0.0
+                let frame = runtime.nextTickFrame
+                    + stepOffsetMs * MetronomeAudioEngine.sampleRate / 1000.0
                 if chosen == nil || frame < chosenFrame {
                     chosen = runtime
                     chosenFrame = frame
@@ -350,12 +352,11 @@ private final class RenderState {
     private func makeRuntimes(config: EngineConfig) -> [VoiceRuntime?] {
         var runtimes = [VoiceRuntime?](repeating: nil, count: Self.maxVoices)
         let primaryPattern = config.countInBars > 0 ? config.countIn : config.primary
-        runtimes[0] = VoiceRuntime(pattern: primaryPattern, isPrimary: true, frameOffset: 0)
+        runtimes[0] = VoiceRuntime(pattern: primaryPattern, isPrimary: true)
         for (index, layer) in config.layers.prefix(Self.maxVoices - 1).enumerated() {
             runtimes[index + 1] = VoiceRuntime(
                 pattern: layer,
-                isPrimary: false,
-                frameOffset: layer.offsetFrames
+                isPrimary: false
             )
         }
         return runtimes
@@ -402,13 +403,8 @@ private final class RenderState {
                     runtime.nextTickFrame = framePosition
                 }
                 runtime.pattern = layer
-                runtime.frameOffset = layer.offsetFrames
             } else {
-                let runtime = VoiceRuntime(
-                    pattern: layer,
-                    isPrimary: false,
-                    frameOffset: layer.offsetFrames
-                )
+                let runtime = VoiceRuntime(pattern: layer, isPrimary: false)
                 runtime.nextTickFrame = framePosition
                 runtimes[index] = runtime
             }

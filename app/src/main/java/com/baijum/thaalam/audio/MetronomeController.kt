@@ -279,6 +279,18 @@ class MetronomeController private constructor(
         mutateLayer(id) { LayerMutations.setEnabled(it, enabled) }
     }
 
+    fun setLayerSolo(id: String, solo: Boolean) {
+        mutateLayer(id) { LayerMutations.setSolo(it, solo) }
+    }
+
+    fun cycleLayerStepOffset(id: String, index: Int) {
+        mutateLayer(id) { LayerMutations.cycleStepOffset(it, index) }
+    }
+
+    fun setLayerStepOffset(id: String, index: Int, offsetMs: Double) {
+        mutateLayer(id) { LayerMutations.setStepOffset(it, index, offsetMs) }
+    }
+
     fun setLayerGain(id: String, gain: Float) {
         mutateLayer(id) { LayerMutations.setGain(it, gain.toDouble()) }
     }

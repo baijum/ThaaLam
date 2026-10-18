@@ -372,6 +372,7 @@ struct MetronomeView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(ThaaLamTheme.textSecondary)
                 } else {
+                    LayerRings(settings: vm.settings)
                     ForEach(vm.settings.layers, id: \.id) { layer in
                         HStack(spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -395,6 +396,16 @@ struct MetronomeView: View {
                             .labelsHidden()
                             .tint(ThaaLamTheme.saffron)
                             .accessibilityLabel("Enable \(layer.name)")
+                            Button {
+                                vm.setLayerSolo(layer.id, !layer.solo)
+                            } label: {
+                                Image(systemName: layer.solo ? "headphones.circle.fill" : "headphones")
+                                    .foregroundStyle(
+                                        layer.solo ? ThaaLamTheme.saffron : ThaaLamTheme.textSecondary
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(layer.solo ? "Unsolo \(layer.name)" : "Solo \(layer.name)")
                             Button {
                                 editingLayerID = layer.id
                             } label: {
@@ -738,6 +749,79 @@ private func swingLabel(_ percent: Double) -> String {
     }
 }
 
+private struct LayerRings: View {
+    let settings: MetronomeSettings
+    @State private var voices: [VoicePattern] = []
+
+    private var settingsKey: Int {
+        Int(PatternFactory.shared.patternKey(settings: settings))
+    }
+
+    private var accessibilityText: String {
+        voices.map { voice in
+            "\(voice.isPrimary ? "Primary" : voice.name), \(voice.pulseCount) pulses"
+        }.joined(separator: "; ")
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let maxRadius = min(size.width, size.height) / 2 - 10
+                let colors: [Color] = [
+                    ThaaLamTheme.saffron,
+                    ThaaLamTheme.teal,
+                    ThaaLamTheme.coral,
+                    ThaaLamTheme.textSecondary,
+                ]
+                for (index, voice) in voices.enumerated() {
+                    let color = colors[index % colors.count]
+                    let radius = maxRadius * (1 - CGFloat(index) * 0.16)
+                    let ring = CGRect(
+                        x: center.x - radius,
+                        y: center.y - radius,
+                        width: radius * 2,
+                        height: radius * 2
+                    )
+                    context.stroke(
+                        Path(ellipseIn: ring),
+                        with: .color(color.opacity(0.45)),
+                        lineWidth: 1.5
+                    )
+                    for step in voice.steps {
+                        let angle = step.offsetBeats / voice.cycleBeats * 2 * Double.pi - Double.pi / 2
+                        let point = CGPoint(
+                            x: center.x + CGFloat(cos(angle)) * radius,
+                            y: center.y + CGFloat(sin(angle)) * radius
+                        )
+                        let dotRadius: CGFloat = step.isMainBeat ? 5.5 : 4
+                        context.fill(
+                            Path(ellipseIn: CGRect(
+                                x: point.x - dotRadius,
+                                y: point.y - dotRadius,
+                                width: dotRadius * 2,
+                                height: dotRadius * 2
+                            )),
+                            with: .color(color)
+                        )
+                    }
+                }
+            }
+            .frame(height: 180)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Composite cycle")
+            .accessibilityValue(accessibilityText)
+
+            Text("Each ring is one cycle · dots are pulses. The primary ring is outside.")
+                .font(.caption)
+                .foregroundStyle(ThaaLamTheme.textSecondary)
+        }
+        .task(id: settingsKey) {
+            voices = PatternFactory.shared.voices(settings: settings)
+        }
+    }
+}
+
 private struct LayerPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var vm: MetronomeViewModel
@@ -879,6 +963,14 @@ private struct LayerEditorSheet: View {
                     )
                 )
                 .tint(ThaaLamTheme.saffron)
+                Toggle(
+                    "Solo",
+                    isOn: Binding(
+                        get: { layer.solo },
+                        set: { vm.setLayerSolo(layer.id, $0) }
+                    )
+                )
+                .tint(ThaaLamTheme.saffron)
             }
             Section("Grid") {
                 StepperRow(
@@ -920,6 +1012,27 @@ private struct LayerEditorSheet: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Layer pulse \(index + 1)")
                         .accessibilityValue(PulseKind(kind).displayName)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Step timing") {
+                Text("Tap a pulse to cycle −20, −10, 0, +10 and +20 ms.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+                FlowLayout(spacing: 8, lineSpacing: 6) {
+                    let count = Int(LayerMutations.shared.stepOffsetCount(layer: layer))
+                    ForEach(0..<count, id: \.self) { index in
+                        let offset = LayerMutations.shared.stepOffsetAt(
+                            layer: layer,
+                            index: Int32(index)
+                        )
+                        ChipButton(
+                            label: "\(index + 1) \(formatStepOffset(offset))",
+                            selected: offset != 0
+                        ) {
+                            vm.cycleLayerStepOffset(layer.id, index: index)
+                        }
                     }
                 }
                 .padding(.vertical, 4)
@@ -996,6 +1109,11 @@ private struct LayerEditorSheet: View {
             }
         }
     }
+}
+
+private func formatStepOffset(_ value: Double) -> String {
+    let rounded = Int(value.rounded())
+    return rounded > 0 ? "+\(rounded)" : "\(rounded)"
 }
 
 private func formatLayerCycle(_ value: Double) -> String {

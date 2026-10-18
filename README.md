@@ -55,8 +55,12 @@ Hindustani tala library.
   pulses-per-cycle value.
 - **Polymeter**: give a layer its own cycle length (for example 3/4, 5/4, 5/8 or
   7/8) against the main bar; the cycles realign at their least common multiple.
-- **Per-layer control**: enable, gain, sound set, ±50 ms offset, swing, and a
-  four-state accent pattern for every pulse.
+- **Per-layer control**: enable, solo, gain, sound set, ±50 ms offset, swing,
+  and a four-state accent pattern for every pulse.
+- **Per-pulse micro-timing**: nudge an individual pulse through −20, −10, 0,
+  +10 and +20 ms.
+- **Composite cycle view**: concentric rings show the primary pulse and each
+  active layer, with a text summary for screen readers.
 - Layers follow count-in, gap training, stochastic muting and tempo changes;
   editing an accent never restarts the primary bar.
 
@@ -203,7 +207,9 @@ ThaaLam/
 │       └── Theme.swift
 ├── docs/
 │   ├── screenshots/
-│   └── architecture.md               engine and data-flow deep dive
+│   ├── architecture.md               engine and data-flow deep dive
+│   └── roadmap.md                    release plan
+├── CHANGELOG.md
 └── references/                       market and product research reports
 ```
 
@@ -337,7 +343,7 @@ canonical lengths, khali placement and theka lengths.
 ## Testing
 
 ```bash
-./gradlew :shared:jvmTest      # 96 shared tests: meters, layers, patterns,
+./gradlew :shared:jvmTest      # 101 shared tests: meters, layers, patterns,
                                # talas, practice logic, tap tempo, presets
 ./gradlew :app:lintDebug       # Android lint
 ./gradlew :app:assembleDebug
@@ -347,10 +353,12 @@ Manual verification performed during development:
 
 - Android emulator (API 36): clean launch, metronome start/stop, count-in,
   tala selection and playback, adding/toggling a 5-over-4 layer while playing,
-  foreground service while backgrounded, dark mode.
+  composite rings, solo and per-pulse timing, foreground service while
+  backgrounded, dark mode.
 - iOS simulator (iPhone 17 Pro): clean launch, metronome playback, tala detail,
-  tala playback, layer picker/editor, 5-over-4 layer while playing, light/dark
-  mode, audio session start without errors.
+  tala playback, layer picker/editor, composite rings, solo and per-pulse timing,
+  5-over-4 layer while playing, light/dark mode, audio session start without
+  errors.
 
 iOS audio is verified by scheduling and rendering; a hardware loopback test is
 recommended before shipping for measuring output latency on real devices.
@@ -367,7 +375,7 @@ recommended before shipping for measuring output latency on real devices.
 | Swing, ghost notes, tuplets up to nonuplets, additive meters | ✅ implemented |
 | Carnatic Suladi Sapta Talas, Chapu, nadai, Hindustani theka | ✅ implemented |
 | Presets, haptics, flash, visual latency calibration | ✅ implemented |
-| Subdivision mixer, polyrhythm / polymeter layers | ✅ core implemented (v0.2) |
+| Subdivision mixer, polyrhythm / polymeter layers, solo, per-pulse timing | ✅ implemented (v0.2) |
 | Kalam, kalai, eduppu, anga timbres, Ashtottara talas | ◻ planned for v0.3 |
 | Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ planned for v0.4 |
 | Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ planned for v0.5 |
@@ -379,7 +387,8 @@ technical brief. Features that require networking, a backend, third-party SDKs
 or audio input were deliberately kept out of this first release; the current app
 is fully offline and has no analytics, ads, accounts or network permissions.
 
-A detailed, release-by-release plan is in [`docs/roadmap.md`](docs/roadmap.md).
+A detailed, release-by-release plan is in [`docs/roadmap.md`](docs/roadmap.md);
+release notes are in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

@@ -23,13 +23,26 @@ object LayerCompiler {
     ): List<VoicePattern> {
         val normalized = settings.normalized()
         val primary = compilePrimary(normalized)
-        val layers = normalized.layers
-            .filter { includeDisabled || it.enabled }
+        val candidates = normalized.layers.filter { includeDisabled || it.enabled }
+        val anySolo = candidates.any { it.enabled && it.solo }
+        val layers = candidates
+            .filter { !anySolo || (it.enabled && it.solo) }
             .map(::compileLayer)
         return buildList {
             add(primary)
             addAll(layers)
         }
+    }
+
+    /**
+     * Layers that should be audible for the current snapshot: enabled layers,
+     * narrowed to soloed layers when at least one solo is active. The primary
+     * pulse always remains the reference.
+     */
+    fun activeLayers(settings: MetronomeSettings): List<LayerSettings> {
+        val enabled = settings.normalized().layers.filter { it.enabled }
+        val anySolo = enabled.any { it.solo }
+        return if (anySolo) enabled.filter { it.solo } else enabled
     }
 
     /** The normal primary grid, without layers. */
@@ -129,6 +142,7 @@ object LayerCompiler {
                 beat = -1,
                 sub = index,
                 isMainBeat = false,
+                offsetMs = safe.offsetMs + safe.stepOffsetsMs.getOrElse(index) { 0.0 },
             )
         }
         val gaps = offsets.mapIndexed { index, offset ->
@@ -187,7 +201,7 @@ object LayerCompiler {
         return buildList {
             add(primaryGridKey(normalized))
             add(countInGridKey(normalized))
-            normalized.layers.filter { it.enabled }.forEach { add(layerGridKey(it)) }
+            activeLayers(normalized).forEach { add(layerGridKey(it)) }
         }.hashCode()
     }
 

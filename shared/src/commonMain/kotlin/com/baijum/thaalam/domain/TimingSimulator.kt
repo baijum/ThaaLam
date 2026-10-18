@@ -38,10 +38,8 @@ object TimingSimulator {
         val normalized = settings.normalized()
         val primary = LayerCompiler.compilePrimary(normalized)
         val countIn = LayerCompiler.compileCountIn(normalized)
-        val layers = normalized.layers
-            .filter { it.enabled }
+        val layers = LayerCompiler.activeLayers(normalized)
             .map(LayerCompiler::compileLayer)
-        val offsetFrames: (Double) -> Double = { ms -> ms * sampleRate / 1000.0 }
 
         var currentBpm = normalized.bpm
         var barIndex = 1
@@ -53,7 +51,6 @@ object TimingSimulator {
             stepIndex = 0,
             nextFrame = 0.0,
             isPrimary = true,
-            frameOffset = 0.0,
         )
         layers.forEach { layer ->
             runtimes += Runtime(
@@ -61,7 +58,6 @@ object TimingSimulator {
                 stepIndex = 0,
                 nextFrame = 0.0,
                 isPrimary = false,
-                frameOffset = offsetFrames(layer.offsetMs),
             )
         }
 
@@ -70,10 +66,10 @@ object TimingSimulator {
         var guard = 0
         while (guard++ < MAX_EVENTS) {
             var chosen = runtimes[0]
-            var chosenFrame = chosen.nextFrame + chosen.frameOffset
+            var chosenFrame = chosen.nextFrame + stepOffsetFrames(chosen, sampleRate)
             for (index in 1 until runtimes.size) {
                 val runtime = runtimes[index]
-                val frame = runtime.nextFrame + runtime.frameOffset
+                val frame = runtime.nextFrame + stepOffsetFrames(runtime, sampleRate)
                 if (frame < chosenFrame) {
                     chosen = runtime
                     chosenFrame = frame
@@ -156,11 +152,15 @@ object TimingSimulator {
     private fun framesPerBeat(bpm: Double, sampleRate: Int): Double =
         TempoMath.framesPerBeat(bpm, sampleRate)
 
+    private fun stepOffsetFrames(runtime: Runtime, sampleRate: Int): Double {
+        val step = runtime.pattern.steps.getOrNull(runtime.stepIndex) ?: return 0.0
+        return step.offsetMs * sampleRate / 1000.0
+    }
+
     private data class Runtime(
         var pattern: VoicePattern,
         var stepIndex: Int,
         var nextFrame: Double,
         val isPrimary: Boolean,
-        val frameOffset: Double,
     )
 }

@@ -125,6 +125,29 @@ object SettingsMutations {
         enabled: Boolean,
     ): MetronomeSettings = mutateLayer(settings, id) { it.copy(enabled = enabled) }
 
+    fun setLayerSolo(
+        settings: MetronomeSettings,
+        id: String,
+        solo: Boolean,
+    ): MetronomeSettings = mutateLayer(settings, id) { it.copy(solo = solo) }
+
+    fun setLayerStepOffset(
+        settings: MetronomeSettings,
+        id: String,
+        index: Int,
+        offsetMs: Double,
+    ): MetronomeSettings = mutateLayer(settings, id) {
+        LayerMutations.setStepOffset(it, index, offsetMs)
+    }
+
+    fun cycleLayerStepOffset(
+        settings: MetronomeSettings,
+        id: String,
+        index: Int,
+    ): MetronomeSettings = mutateLayer(settings, id) {
+        LayerMutations.cycleStepOffset(it, index)
+    }
+
     fun setLayerGain(
         settings: MetronomeSettings,
         id: String,
@@ -278,6 +301,30 @@ object LayerFactory {
 object LayerMutations {
     fun setEnabled(layer: LayerSettings, enabled: Boolean): LayerSettings =
         layer.copy(enabled = enabled).normalized()
+
+    fun setSolo(layer: LayerSettings, solo: Boolean): LayerSettings =
+        layer.copy(solo = solo).normalized()
+
+    fun setStepOffset(layer: LayerSettings, index: Int, offsetMs: Double): LayerSettings {
+        val offsets = layer.stepOffsetsMs.toMutableList()
+        while (offsets.size <= index) offsets.add(0.0)
+        if (index >= 0) offsets[index] = offsetMs
+        return layer.copy(stepOffsetsMs = offsets).normalized()
+    }
+
+    /** Primitive accessors so SwiftUI does not need to bridge List<Double>. */
+    fun stepOffsetCount(layer: LayerSettings): Int = layer.stepOffsetsMs.size
+
+    fun stepOffsetAt(layer: LayerSettings, index: Int): Double =
+        layer.stepOffsetsMs.getOrElse(index) { 0.0 }
+
+    fun cycleStepOffset(layer: LayerSettings, index: Int): LayerSettings {
+        val cycle = LayerSettings.stepOffsetCycleMs
+        val current = layer.stepOffsetsMs.getOrElse(index) { 0.0 }
+        val currentIndex = cycle.indexOfFirst { it == current }.takeIf { it >= 0 } ?: 2
+        val next = cycle[(currentIndex + 1) % cycle.size]
+        return setStepOffset(layer, index, next)
+    }
 
     fun rename(layer: LayerSettings, name: String): LayerSettings {
         val trimmed = name.trim()

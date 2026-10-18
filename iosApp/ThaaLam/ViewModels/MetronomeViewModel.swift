@@ -326,6 +326,37 @@ final class MetronomeViewModel: ObservableObject {
         )
     }
 
+    func setLayerSolo(_ id: String, _ solo: Bool) {
+        commit(
+            SettingsMutations.shared.setLayerSolo(
+                settings: settings,
+                id: id,
+                solo: solo
+            )
+        )
+    }
+
+    func cycleLayerStepOffset(_ id: String, index: Int) {
+        commit(
+            SettingsMutations.shared.cycleLayerStepOffset(
+                settings: settings,
+                id: id,
+                index: Int32(index)
+            )
+        )
+    }
+
+    func setLayerStepOffset(_ id: String, index: Int, offsetMs: Double) {
+        commit(
+            SettingsMutations.shared.setLayerStepOffset(
+                settings: settings,
+                id: id,
+                index: Int32(index),
+                offsetMs: offsetMs
+            )
+        )
+    }
+
     func setLayerGain(_ id: String, _ gain: Double) {
         commit(
             SettingsMutations.shared.setLayerGain(

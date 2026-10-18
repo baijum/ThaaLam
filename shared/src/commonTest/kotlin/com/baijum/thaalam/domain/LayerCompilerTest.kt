@@ -157,6 +157,7 @@ class LayerCompilerTest {
             assertEquals(50.0, normalized.offsetMs)
             assertEquals(75.0, normalized.swingPercent)
             assertEquals(1, normalized.accentPattern.size)
+            assertEquals(1, normalized.stepOffsetsMs.size)
             assertTrue(normalized.name.isNotBlank())
         }
     }
@@ -166,6 +167,29 @@ class LayerCompilerTest {
         val settings = MetronomeSettings(layers = listOf(layer(3, 2.0, enabled = false)))
         assertEquals(1, LayerCompiler.compile(settings).size)
         assertEquals(2, LayerCompiler.compile(settings, includeDisabled = true).size)
+    }
+
+
+    @Test
+    fun `solo narrows the audible layers while the primary stays`() {
+        val first = layer(3, 2.0)
+        val second = layer(5, 4.0).copy(solo = true)
+        val settings = MetronomeSettings(layers = listOf(first, second))
+        val voices = LayerCompiler.compile(settings)
+        assertEquals(2, voices.size)
+        assertTrue(voices[0].isPrimary)
+        assertEquals(second.id, voices[1].id)
+        assertEquals(listOf(second.id), LayerCompiler.activeLayers(settings).map { it.id })
+    }
+
+    @Test
+    fun `per-step offsets include the layer offset`() {
+        val layered = layer(5, 4.0).copy(
+            offsetMs = 5.0,
+            stepOffsetsMs = listOf(0.0, -10.0, 10.0, 0.0, 0.0),
+        )
+        val voice = LayerCompiler.compileLayer(layered)
+        assertEquals(listOf(5.0, -5.0, 15.0, 5.0, 5.0), voice.steps.map { it.offsetMs })
     }
 
     @Test

@@ -20,6 +20,8 @@ data class VoiceStep(
     val beat: Int = -1,
     val sub: Int = 0,
     val isMainBeat: Boolean = false,
+    /** Per-step timing offset in milliseconds, including the layer offset. */
+    val offsetMs: Double = 0.0,
 )
 
 /**

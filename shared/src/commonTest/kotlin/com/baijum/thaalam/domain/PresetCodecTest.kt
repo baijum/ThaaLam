@@ -9,6 +9,7 @@ import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PresetCodecTest {
@@ -133,5 +134,17 @@ class PresetCodecTest {
         val decoded = PresetCodec.decodeSettings(raw)
         assertEquals(120.0, decoded.bpm)
         assertTrue(decoded.layers.isEmpty())
+    }
+
+    @Test
+    fun `layer json written before solo and step timing still decodes`() {
+        val raw = """{"bpm":120.0,"meter":{"beatsPerBar":4,"beatUnit":4,"grouping":[4]},"accentPattern":["ACCENT","NORMAL","NORMAL","NORMAL"],"layers":[{"id":"legacy","pulses":3,"cycleBeats":2.0}]}"""
+        val decoded = PresetCodec.decodeSettings(raw)
+        val layer = decoded.layers.single()
+        assertEquals("legacy", layer.id)
+        assertEquals(3, layer.pulses)
+        assertFalse(layer.solo)
+        assertEquals(3, layer.stepOffsetsMs.size)
+        assertTrue(layer.stepOffsetsMs.all { it == 0.0 })
     }
 }

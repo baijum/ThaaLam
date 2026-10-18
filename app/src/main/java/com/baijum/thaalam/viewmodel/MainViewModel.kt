@@ -106,6 +106,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeLayer(id: String) = controller.removeLayer(id)
     fun clearLayers() = controller.clearLayers()
     fun setLayerEnabled(id: String, enabled: Boolean) = controller.setLayerEnabled(id, enabled)
+    fun setLayerSolo(id: String, solo: Boolean) = controller.setLayerSolo(id, solo)
+    fun cycleLayerStepOffset(id: String, index: Int) = controller.cycleLayerStepOffset(id, index)
+    fun setLayerStepOffset(id: String, index: Int, offsetMs: Double) =
+        controller.setLayerStepOffset(id, index, offsetMs)
     fun setLayerGain(id: String, gain: Float) = controller.setLayerGain(id, gain)
     fun setLayerOffset(id: String, offsetMs: Double) = controller.setLayerOffset(id, offsetMs)
     fun setLayerSound(id: String, soundSet: SoundSet) = controller.setLayerSound(id, soundSet)

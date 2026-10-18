@@ -187,6 +187,19 @@ class SwiftInteropTest {
         assertTrue(settings.layers.isEmpty())
     }
 
+
+    @Test
+    fun `solo and step-offset mutations are Swift friendly`() {
+        val base = SettingsMutations.defaults()
+        val layer = LayerFactory.polyrhythm(base, pulses = 5, cycleBeats = 4.0)
+        var settings = SettingsMutations.addLayer(base, layer)
+        settings = SettingsMutations.setLayerSolo(settings, layer.id, true)
+        assertTrue(settings.layers.single().solo)
+        settings = SettingsMutations.cycleLayerStepOffset(settings, layer.id, 0)
+        assertEquals(10.0, LayerMutations.stepOffsetAt(settings.layers.single(), 0))
+        assertEquals(5, LayerMutations.stepOffsetCount(settings.layers.single()))
+    }
+
     @Test
     fun `pattern factory exposes compiled layers and a count-in voice`() {
         val base = MetronomeSettings()

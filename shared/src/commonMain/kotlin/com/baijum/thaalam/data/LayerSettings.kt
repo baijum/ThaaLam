@@ -25,6 +25,8 @@ data class LayerSettings(
     val id: String,
     val name: String = "",
     val enabled: Boolean = true,
+    /** Solos this layer: other layers stay silent, the primary pulse continues. */
+    val solo: Boolean = false,
     val pulses: Int = 2,
     /** Cycle length in primary beats. Must be positive. */
     val cycleBeats: Double = 4.0,
@@ -35,6 +37,8 @@ data class LayerSettings(
     val gain: Float = 0.7f,
     /** Positive values delay the layer; negative values push it ahead. */
     val offsetMs: Double = 0.0,
+    /** Per-pulse timing offsets in milliseconds, one entry per pulse. */
+    val stepOffsetsMs: List<Double> = emptyList(),
     /** 50 = straight, 75 = dotted feel. Applied to even pulse counts only. */
     val swingPercent: Double = 50.0,
 ) {
@@ -66,6 +70,10 @@ data class LayerSettings(
             ),
             gain = gain.coerceIn(0f, 1f),
             offsetMs = offsetMs.coerceIn(MIN_OFFSET_MS, MAX_OFFSET_MS),
+            stepOffsetsMs = List(safePulses) { index ->
+                stepOffsetsMs.getOrElse(index) { 0.0 }
+                    .coerceIn(MIN_OFFSET_MS, MAX_OFFSET_MS)
+            },
             swingPercent = swingPercent.coerceIn(MIN_SWING, MAX_SWING),
         )
     }
@@ -80,6 +88,9 @@ data class LayerSettings(
         const val MAX_OFFSET_MS: Double = 50.0
         const val MIN_SWING: Double = 50.0
         const val MAX_SWING: Double = 75.0
+
+        /** Values cycled by the per-pulse timing editor. */
+        val stepOffsetCycleMs: List<Double> = listOf(-20.0, -10.0, 0.0, 10.0, 20.0)
 
         /** Accent the start of the layer; keep the rest of the grid even. */
         fun defaultAccentPattern(pulses: Int): List<BeatKind> {

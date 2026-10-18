@@ -40,7 +40,6 @@ private class VoiceRuntime(
     var pattern: VoicePattern,
     var gridKey: Int,
     val isPrimary: Boolean,
-    var frameOffset: Double,
     var stepIndex: Int = 0,
     var nextTickFrame: Double = 0.0,
 ) {
@@ -201,7 +200,10 @@ class MetronomeAudioEngine {
                     var chosenFrame = Double.MAX_VALUE
                     for (runtime in runtimes) {
                         if (runtime == null) continue
-                        val candidate = runtime.nextTickFrame + runtime.frameOffset
+                        val stepOffsetMs = runtime.pattern.steps
+                            .getOrNull(runtime.stepIndex)?.offsetMs ?: 0.0
+                        val candidate = runtime.nextTickFrame +
+                            stepOffsetMs * SAMPLE_RATE / 1000.0
                         if (chosen == null || candidate < chosenFrame) {
                             chosen = runtime
                             chosenFrame = candidate
@@ -331,14 +333,12 @@ class MetronomeAudioEngine {
             pattern = primaryPattern,
             gridKey = primaryPattern.gridKey,
             isPrimary = true,
-            frameOffset = 0.0,
         )
         cfg.layers.take(LayerSettings.MAX_LAYERS).forEachIndexed { index, layer ->
             runtimes[index + 1] = VoiceRuntime(
                 pattern = layer,
                 gridKey = layer.gridKey,
                 isPrimary = false,
-                frameOffset = offsetFrames(layer),
             )
         }
         return runtimes
@@ -392,7 +392,6 @@ class MetronomeAudioEngine {
                     pattern = layer,
                     gridKey = layer.gridKey,
                     isPrimary = false,
-                    frameOffset = offsetFrames(layer),
                 ).also { it.nextTickFrame = framePosition.toDouble() }
             } else {
                 if (runtime.gridKey != layer.gridKey) {
@@ -401,14 +400,10 @@ class MetronomeAudioEngine {
                 }
                 runtime.pattern = layer
                 runtime.gridKey = layer.gridKey
-                runtime.frameOffset = offsetFrames(layer)
             }
         }
         return primaryReset
     }
-
-    private fun offsetFrames(pattern: VoicePattern): Double =
-        pattern.offsetMs * SAMPLE_RATE / 1000.0
 
     private fun buildConfig(settings: MetronomeSettings): EngineConfig {
         val normalized = settings.normalized()

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
@@ -63,6 +65,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -83,6 +87,7 @@ import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.domain.LayerCompiler
 import com.baijum.thaalam.domain.TempoMath
 import com.baijum.thaalam.ui.components.BeatGrid
 import com.baijum.thaalam.ui.components.ChoiceChips
@@ -94,9 +99,13 @@ import com.baijum.thaalam.ui.theme.LocalReduceMotion
 import com.baijum.thaalam.ui.theme.thaaFilterChipColors
 import com.baijum.thaalam.ui.theme.thaaSliderColors
 import com.baijum.thaalam.viewmodel.MainViewModel
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.ln
+import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -189,6 +198,7 @@ fun MetronomeScreen(
                     onAdd = { showLayerPicker = true },
                     onEdit = { editingLayerId = it },
                     onToggle = viewModel::setLayerEnabled,
+                    onSolo = viewModel::setLayerSolo,
                     onRemove = viewModel::removeLayer,
                 )
             }
@@ -270,12 +280,14 @@ fun MetronomeScreen(
                 layer = layer,
                 onDismiss = { editingLayerId = null },
                 onEnabled = { viewModel.setLayerEnabled(id, it) },
+                onSolo = { viewModel.setLayerSolo(id, it) },
                 onPulses = { viewModel.setLayerPulses(id, it) },
                 onCycle = { viewModel.setLayerCycleBeats(id, it) },
                 onAccent = { viewModel.cycleLayerAccent(id, it) },
                 onGain = { viewModel.setLayerGain(id, it) },
                 onOffset = { viewModel.setLayerOffset(id, it) },
                 onSwing = { viewModel.setLayerSwing(id, it) },
+                onStepOffset = { viewModel.cycleLayerStepOffset(id, it) },
                 onSound = { viewModel.setLayerSound(id, it) },
                 onPreview = { viewModel.previewLayer(id) },
                 onDelete = {
@@ -613,6 +625,7 @@ private fun LayersCard(
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
     onToggle: (String, Boolean) -> Unit,
+    onSolo: (String, Boolean) -> Unit,
     onRemove: (String) -> Unit,
 ) {
     SectionCard(
@@ -640,6 +653,7 @@ private fun LayersCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
+            LayerRings(settings = settings)
             settings.layers.forEach { layer ->
                 Surface(
                     shape = MaterialTheme.shapes.medium,
@@ -674,6 +688,21 @@ private fun LayersCard(
                                 contentDescription = "Enable ${layer.name}"
                             },
                         )
+                        IconButton(onClick = { onSolo(layer.id, !layer.solo) }) {
+                            Icon(
+                                imageVector = Icons.Filled.Headphones,
+                                contentDescription = if (layer.solo) {
+                                    "Unsolo ${layer.name}"
+                                } else {
+                                    "Solo ${layer.name}"
+                                },
+                                tint = if (layer.solo) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                         IconButton(onClick = { onEdit(layer.id) }) {
                             Icon(Icons.Filled.Edit, contentDescription = "Edit ${layer.name}")
                         }
@@ -685,6 +714,58 @@ private fun LayersCard(
             }
         }
     }
+}
+
+@Composable
+private fun LayerRings(settings: MetronomeSettings) {
+    val voices = remember(settings) { LayerCompiler.compile(settings) }
+    if (voices.isEmpty()) return
+    val colors = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.error,
+    )
+    val description = voices.joinToString("; ") { voice ->
+        val role = if (voice.isPrimary) "Primary" else voice.name
+        "$role, ${voice.pulseCount} pulses"
+    }
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(190.dp)
+            .semantics { contentDescription = "Composite cycle. $description" },
+    ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val maxRadius = min(size.width, size.height) / 2f - 10.dp.toPx()
+        voices.forEachIndexed { index, voice ->
+            val color = colors[index % colors.size]
+            val radius = maxRadius * (1f - index * 0.16f)
+            drawCircle(
+                color = color.copy(alpha = 0.45f),
+                radius = radius,
+                center = center,
+                style = Stroke(width = 1.5.dp.toPx()),
+            )
+            voice.steps.forEach { step ->
+                val angle = (step.offsetBeats / voice.cycleBeats * 2.0 * PI - PI / 2.0)
+                val dot = Offset(
+                    x = center.x + cos(angle).toFloat() * radius,
+                    y = center.y + sin(angle).toFloat() * radius,
+                )
+                drawCircle(
+                    color = color,
+                    radius = if (step.isMainBeat) 5.5.dp.toPx() else 4.dp.toPx(),
+                    center = dot,
+                )
+            }
+        }
+    }
+    Text(
+        text = "Each ring is one cycle · dots are pulses. The primary ring is outside.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -793,12 +874,14 @@ private fun LayerEditorDialog(
     layer: LayerSettings,
     onDismiss: () -> Unit,
     onEnabled: (Boolean) -> Unit,
+    onSolo: (Boolean) -> Unit,
     onPulses: (Int) -> Unit,
     onCycle: (Double) -> Unit,
     onAccent: (Int) -> Unit,
     onGain: (Float) -> Unit,
     onOffset: (Double) -> Unit,
     onSwing: (Double) -> Unit,
+    onStepOffset: (Int) -> Unit,
     onSound: (SoundSet) -> Unit,
     onPreview: () -> Unit,
     onDelete: () -> Unit,
@@ -823,6 +906,12 @@ private fun LayerEditorDialog(
                     checked = layer.enabled,
                     onCheckedChange = onEnabled,
                 )
+                ToggleRow(
+                    title = "Solo",
+                    subtitle = "Silence the other layers while keeping the primary pulse",
+                    checked = layer.solo,
+                    onCheckedChange = onSolo,
+                )
                 Stepper(
                     label = "Pulses",
                     valueLabel = "${layer.pulses}",
@@ -837,6 +926,27 @@ private fun LayerEditorDialog(
                     onDecrease = { onCycle(layer.cycleBeats - 0.5) },
                     onIncrease = { onCycle(layer.cycleBeats + 0.5) },
                 )
+                FieldLabel("Step timing")
+                Text(
+                    text = "Tap a pulse to cycle −20, −10, 0, +10 and +20 ms.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    layer.stepOffsetsMs.forEachIndexed { index, offsetMs ->
+                        FilterChip(
+                            colors = thaaFilterChipColors(),
+                            selected = offsetMs != 0.0,
+                            onClick = { onStepOffset(index) },
+                            label = {
+                                Text("${index + 1} ${formatStepOffset(offsetMs)}")
+                            },
+                        )
+                    }
+                }
                 FieldLabel("Pulse accents")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -966,6 +1076,11 @@ private fun LayerAccentChip(
             )
         }
     }
+}
+
+private fun formatStepOffset(value: Double): String {
+    val rounded = value.roundToInt()
+    return if (rounded > 0) "+$rounded" else "$rounded"
 }
 
 private fun formatCycle(value: Double): String =

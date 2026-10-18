@@ -41,7 +41,7 @@ steps.
 | `meter` | pulses per bar, beat unit, additive grouping |
 | `subdivision` | ticks per pulse (1–9) |
 | `accentPattern` | one `BeatKind` per pulse: accent / normal / ghost / mute |
-| `layers` | up to three additional voices: pulses, cycle length, accents, sound, gain, offset, swing |
+| `layers` | up to three additional voices: pulses, cycle, accents, sound, gain, offset, step offsets, swing, solo |
 | `swingPercent` | 50–75, applied to odd subdivisions of even grids |
 | `soundSet` | click timbre |
 | `volume` | master gain |
@@ -90,9 +90,14 @@ changes do rebuild the grid and restart it from the current buffer.
   their least common multiple.
 
 The primary voice keeps the familiar pulse/beat metadata for the UI. Layer steps
-carry a pulse index for live accent resolution. `gridKey` changes only when the
-grid itself changes, so gain, sound, offset and accent edits update the running
-voice without restarting it.
+carry a pulse index for live accent resolution and an `offsetMs` that already
+includes the layer offset plus that pulse's micro-timing. `gridKey` changes only
+when the grid itself changes, so gain, sound, offset, step-timing and accent
+edits update the running voice without restarting it.
+
+When any enabled layer is soloed, `LayerCompiler.compile()` keeps the primary
+pulse and only the soloed layers. The primary remains the reference so soloing a
+layer never removes the downbeat.
 
 ## 4. Android render loop
 
@@ -294,8 +299,8 @@ Bluetooth listener sees the flash when they hear the click.
 - Polyrhythm, polymeter and the subdivision mixer are implemented. Chained
   mixed-meter songs and setlists are not yet implemented; the engine and tala
   compiler are ready to feed a song scheduler.
-- The layer UI edits one voice at a time; a composite LCM ring and solo controls
-  are still on the roadmap.
+- Layer solo and per-pulse timing are implemented; the composite view shows each
+  voice's own cycle rather than a single shared LCM ring.
 - No MIDI, Ableton Link or network sync.
 - No practice log or microphone-based rhythm grading.
 - No custom click sample import; the five synthesized timbres are built in.

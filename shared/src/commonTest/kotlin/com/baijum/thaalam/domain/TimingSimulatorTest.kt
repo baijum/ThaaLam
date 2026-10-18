@@ -49,6 +49,24 @@ class TimingSimulatorTest {
         assertEquals(listOf(0L, 24_000L, 48_000L, 72_000L), primaryFrames)
     }
 
+
+    @Test
+    fun `per-step offset shifts only that layer pulse`() {
+        val settings = MetronomeSettings(
+            bpm = 120.0,
+            countInBars = 0,
+            layers = listOf(
+                layer(pulses = 5, cycleBeats = 4.0).copy(
+                    stepOffsetsMs = listOf(0.0, 10.0, 0.0, 0.0, 0.0),
+                ),
+            ),
+        )
+        val layerFrames = TimingSimulator.run(settings, totalFrames = 96_000)
+            .filter { it.voiceId == "test-layer" }
+            .map { it.frame }
+        assertEquals(listOf(0L, 19_680L, 38_400L, 57_600L, 76_800L), layerFrames)
+    }
+
     @Test
     fun `layer offset delays every layer tick`() {
         val settings = MetronomeSettings(
