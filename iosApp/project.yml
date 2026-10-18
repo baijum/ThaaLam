@@ -1,0 +1,63 @@
+name: ThaaLam
+options:
+  bundleIdPrefix: com.baijum
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+targets:
+  ThaaLam:
+    type: application
+    platform: iOS
+    sources:
+      - path: ThaaLam
+    info:
+      path: ThaaLam/Info.plist
+      properties:
+        CFBundleDisplayName: ThaaLam
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: false
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.baijum.thaalam
+        PRODUCT_NAME: ThaaLam
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        KMP_CONFIG: debug
+        FRAMEWORK_SEARCH_PATHS:
+          - "$(SRCROOT)/../shared/build/XCFrameworks/$(KMP_CONFIG)/shared.xcframework/ios-arm64_x86_64-simulator"
+          - "$(SRCROOT)/../shared/build/XCFrameworks/$(KMP_CONFIG)/shared.xcframework/ios-arm64"
+        OTHER_LDFLAGS: $(inherited) -framework shared
+        ENABLE_BITCODE: NO
+      configs:
+        Release:
+          KMP_CONFIG: release
+    preBuildScripts:
+      - name: Build shared KMP framework
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          cd "$SRCROOT/.."
+          ./gradlew :shared:assembleShared${CONFIGURATION}XCFramework -Dorg.gradle.java.installations.auto-download=false
+    scheme:
+      testTargets: []
