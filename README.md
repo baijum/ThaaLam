@@ -335,16 +335,19 @@ recommended before shipping for measuring output latency on real devices.
 | Swing, ghost notes, tuplets up to nonuplets, additive meters | ✅ implemented |
 | Carnatic Suladi Sapta Talas, Chapu, nadai, Hindustani theka | ✅ implemented |
 | Presets, haptics, flash, visual latency calibration | ✅ implemented |
-| Polyrhythm / polymeter sequencer, chained mixed-meter setlists | ◻ next |
-| MIDI clock / BLE-MIDI, Ableton Link, network ensemble sync | ◻ next |
-| Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ next |
-| Drone / temperament / pitch-reference engine | ◻ next |
-| Custom click samples, audio recording/export, localization | ◻ next |
+| Subdivision mixer, polyrhythm / polymeter layers | ◻ planned for v0.2 |
+| Kalam, kalai, eduppu, anga timbres, Ashtottara talas | ◻ planned for v0.3 |
+| Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ planned for v0.4 |
+| Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ planned for v0.5 |
+| Drone / temperament / pitch engine, custom samples, recording, localization | ◻ planned for v0.6 |
+| MIDI clock / BLE-MIDI, Ableton Link, network ensemble sync | ◻ deferred (offline constraint) |
 
 The two documents in [`references/`](references/) were used as the product and
 technical brief. Features that require networking, a backend, third-party SDKs
 or audio input were deliberately kept out of this first release; the current app
 is fully offline and has no analytics, ads, accounts or network permissions.
+
+A detailed, release-by-release plan is in [`docs/roadmap.md`](docs/roadmap.md).
 
 ---
 
