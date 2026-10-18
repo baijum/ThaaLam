@@ -314,8 +314,9 @@ The practice log stays on the device. The tap grader uses touch input only.
       this. Choose **Data Not Collected** and **No tracking** in the web UI.
 - [ ] **Availability**: set the countries/regions in the web UI if App Store
       Connect shows an empty availability resource.
-- [ ] **App Review contact details**: add a phone number and confirm the review
-      notes in the web UI.
+- [x] **App Review contact details**: set through the App Store Connect API
+      (contact name, email, phone, no demo account, review notes). The phone
+      number is kept out of this repository.
 - [ ] Add the `whatsNew` text in the web UI if it is still empty; the API
       rejected it while the version was in `PREPARE_FOR_SUBMISSION`.
 - [ ] Run TestFlight on a real device.
