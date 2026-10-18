@@ -1,7 +1,8 @@
 # ThaaLam — App Store submission guide
 
-> Status: build and archive are prepared locally. The remaining blockers are the
-> App Store Connect app record and Apple account/upload credentials.
+> Status: **build uploaded and App Store metadata filled**. The remaining
+> blockers are the App Privacy questionnaire (web-only), availability, and the
+> final TestFlight/submit actions.
 
 ## 1. Release facts
 
@@ -9,10 +10,10 @@
 |---|---|
 | App name | ThaaLam — Tala Metronome |
 | Bundle ID | `com.baijum.thaalam` |
-| SKU (suggested) | `thaalam-ios-001` |
+| SKU | `thaalam-ios-001` |
 | Team ID | `9QBV46NATP` |
 | Version | `0.5.0` |
-| Build | `5` |
+| Build | `5` (uploaded, delivery `f63cf9de-a807-4ac0-af0c-a1e4aed0ad57`) |
 | Category | Music |
 | Age rating | 4+ |
 | Price | Free (recommended; confirm) |
@@ -36,7 +37,16 @@
 - **Listing copy**, keywords and review notes are below.
 - **Archive script**: `./scripts/archive-ios.sh`.
 
-## 3. Before uploading: create the app record
+## 3. App record (created)
+
+The App Store Connect record now exists:
+
+- Name: **ThaaLam Metronome** (listing name **ThaaLam — Tala Metronome**)
+- Bundle ID: `com.baijum.thaalam`
+- SKU: `thaalam-ios-001`
+- App ID: `6824206823`
+
+The steps below are kept for reference.
 
 1. Sign in to [App Store Connect](https://appstoreconnect.apple.com).
 2. Accept any pending **Agreements, Tax, and Banking** items. A free app still
@@ -213,7 +223,13 @@ xcodebuild -exportArchive \
 The exported app is signed with **Apple Distribution** and the store
 provisioning profile. It is ready to upload; do not re-sign it.
 
-## 8. Upload
+## 8. Upload (done)
+
+The IPA was uploaded on 18 October 2026 with the App Store Connect API key. The
+build is **VALID**, attached to iOS version **0.5.0**, and `usesNonExemptEncryption`
+is false. Delivery UUID: `f63cf9de-a807-4ac0-af0c-a1e4aed0ad57`.
+
+The commands below remain useful for future builds.
 
 ### Option A — Xcode Organizer (easiest)
 
@@ -288,11 +304,25 @@ The practice log stays on the device. The tap grader uses touch input only.
 
 ## 11. Remaining blockers
 
-- [ ] Create the App Store Connect app record for `com.baijum.thaalam`.
+- [x] Create the App Store Connect app record for `com.baijum.thaalam`.
 - [x] Publish the privacy policy and support URLs (GitHub Pages is live).
-- [ ] Confirm price (free recommended) and availability.
-- [ ] Upload the IPA and complete TestFlight.
+- [x] Upload the IPA; build 5 is VALID and attached to version 0.5.0.
+- [x] Fill the listing name, subtitle, description, keywords, promotional text,
+      support/marketing URLs, Music/Education category, 4+ age rating, content
+      rights, free price, and iPhone + iPad screenshots.
+- [ ] **App Privacy questionnaire**: App Store Connect has no public API for
+      this. Choose **Data Not Collected** and **No tracking** in the web UI.
+- [ ] **Availability**: set the countries/regions in the web UI if App Store
+      Connect shows an empty availability resource.
+- [ ] **App Review contact details**: add a phone number and confirm the review
+      notes in the web UI.
+- [ ] Add the `whatsNew` text in the web UI if it is still empty; the API
+      rejected it while the version was in `PREPARE_FOR_SUBMISSION`.
+- [ ] Run TestFlight on a real device.
 - [ ] Submit for review.
+
+The build, metadata and screenshots are already in App Store Connect; do not
+re-upload unless you bump `CFBundleVersion`.
 
 Once the app record exists, the archive and IPA in `build/export/` can be
 uploaded without rebuilding. Bump `CFBundleVersion` for every subsequent upload.
@@ -303,10 +333,14 @@ uploaded without rebuilding. Bump `CFBundleVersion` for every subsequent upload.
 |---|---|---|
 | Enable GitHub Pages | `gh api` | **Done** |
 | Verify pages | `curl` | **Done** (HTTP 200) |
-| Create App Store Connect app record | Apple web UI only | **Cannot be done via public API** |
-| Create App Store Connect API key | Apple web UI (Users and Access) | Needs your Apple account |
-| Upload IPA | Xcode Organizer, Transporter, or `altool` with API key | Ready once the app record exists and a key is available |
-| Submit for review | App Store Connect web UI | Needs your Apple account |
+| Create App Store Connect app record | Apple web UI only | **Done manually** |
+| Create App Store Connect API key | Apple web UI (Users and Access) | **Done**; key stored locally |
+| Upload IPA | `altool` with API key | **Done**; build 5 VALID |
+| Fill version metadata and screenshots | App Store Connect API | **Done** |
+| Set category, age rating, price, content rights | App Store Connect API | **Done** |
+| App Privacy questionnaire | Apple web UI only | **Remaining** |
+| Availability and review contact | Apple web UI only | **Remaining** |
+| Submit for review | App Store Connect web UI/API | Needs final web-only fields |
 
 Apple does not expose an App Store Connect API endpoint for creating a new app
 record. The record must be created in the web UI; the public API can then manage
