@@ -51,6 +51,9 @@ edit shared Kotlin, the next Xcode build rebuilds the framework automatically.
 ## Where things live
 
 - Pattern/timing math: `shared/.../domain/RhythmPattern.kt`, `TempoMath.kt`
+- Layers/polyrhythm: `shared/.../domain/LayerCompiler.kt`, `VoicePattern.kt`,
+  `data/LayerSettings.kt`
+- Timing test contract: `shared/.../domain/TimingSimulator.kt`
 - Practice logic: `shared/.../domain/PracticeLogic.kt`
 - Tala data: `shared/.../domain/TalaLibrary.kt`, `data/Tala.kt`
 - Swift-facing Kotlin API: `shared/.../domain/SwiftInterop.kt`

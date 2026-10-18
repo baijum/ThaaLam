@@ -7,11 +7,13 @@ import android.media.AudioTrack
 import android.os.Process
 import android.util.Log
 import com.baijum.thaalam.data.BeatKind
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.Subdivision
+import com.baijum.thaalam.domain.LayerCompiler
 import com.baijum.thaalam.domain.PracticeLogic
-import com.baijum.thaalam.domain.RhythmPattern
 import com.baijum.thaalam.domain.TempoMath
+import com.baijum.thaalam.domain.VoicePattern
 import kotlin.math.max
 
 /** A single scheduled tick, emitted from the audio thread for the UI/controller. */
@@ -29,19 +31,29 @@ data class EngineTick(
 
 private data class EngineConfig(
     val settings: MetronomeSettings,
-    val pattern: RhythmPattern,
-    val countInPattern: RhythmPattern,
-    val patternKey: Int,
+    val primary: VoicePattern,
+    val countIn: VoicePattern,
+    val layers: List<VoicePattern>,
 )
 
+private class VoiceRuntime(
+    var pattern: VoicePattern,
+    var gridKey: Int,
+    val isPrimary: Boolean,
+    var frameOffset: Double,
+    var stepIndex: Int = 0,
+    var nextTickFrame: Double = 0.0,
+) {
+    val id: String get() = pattern.id
+}
+
 /**
- * Sample-accurate metronome audio engine.
+ * Sample-accurate multi-voice metronome audio engine.
  *
  * Timing is derived exclusively from the number of frames written to an
- * [AudioTrack], never from a wall-clock timer. A dedicated high-priority thread
- * fills 256-frame buffers; click positions are computed as absolute frame
- * numbers with a double-precision phase accumulator, so fractional BPM values
- * (and swing/tuplet grids) never accumulate drift.
+ * [AudioTrack], never from a wall-clock timer. The primary voice and up to
+ * three layers each keep their own step cursor, but share one master frame
+ * position and one tempo. Clicks are mixed at their exact sample offset.
  *
  * The engine is deliberately a plain class rather than a service so it can be
  * owned by an application-scoped controller and survive Activity recreation.
@@ -59,7 +71,7 @@ class MetronomeAudioEngine {
     @Volatile
     private var activeTrack: AudioTrack? = null
 
-    /** Called from the audio thread on every scheduled tick. Keep it short. */
+    /** Called from the audio thread on every primary-voice tick. Keep it short. */
     @Volatile
     var onTick: ((EngineTick) -> Unit)? = null
 
@@ -155,93 +167,51 @@ class MetronomeAudioEngine {
             val lcg = PracticeLogic.Lcg(seed = 0x9E3779B97F4A7C15uL.toLong())
 
             var framePosition = 0L
-            var nextTickFrame = 0.0
-            var stepIndex = 0
             var barIndex = 1
-            var lastConfig = config
-            var activePattern = patternForBar(lastConfig, barIndex)
-            var currentBpm = lastConfig?.settings?.bpm ?: 100.0
+            var currentBpm = config?.settings?.bpm ?: 100.0
             var lastBaseBpm = currentBpm
-            var lastPatternKey = lastConfig?.patternKey ?: 0
+            var lastConfig = config ?: return
+            var pendingBarAdvance = false
+            val runtimes = createRuntimes(lastConfig)
 
             while (running) {
                 val cfg = config ?: break
                 if (cfg !== lastConfig) {
-                    if (cfg.patternKey != lastPatternKey) {
-                        // Meter/subdivision/swing changed: restart the grid from
-                        // this buffer so the new pattern begins cleanly.
-                        lastPatternKey = cfg.patternKey
-                        stepIndex = 0
-                        nextTickFrame = framePosition.toDouble()
-                    }
                     if (cfg.settings.bpm != lastBaseBpm) {
                         currentBpm = cfg.settings.bpm
                         lastBaseBpm = cfg.settings.bpm
                     }
-                    activePattern = patternForBar(cfg, barIndex)
+                    applyConfig(
+                        cfg = cfg,
+                        previous = lastConfig,
+                        runtimes = runtimes,
+                        framePosition = framePosition,
+                        barIndex = barIndex,
+                    ).let { primaryReset ->
+                        if (primaryReset) pendingBarAdvance = false
+                    }
                     lastConfig = cfg
                 }
 
-                // Schedule every tick that falls inside this buffer before
-                // rendering, so a click at frame 100 is mixed at frame 100.
                 val windowEnd = framePosition + FRAMES_PER_BUFFER
                 var guard = 0
-                while (nextTickFrame < windowEnd && guard < MAX_TICKS_PER_BUFFER) {
+                while (guard < MAX_TICKS_PER_BUFFER) {
                     guard++
-                    val offset = (nextTickFrame - framePosition).toInt().coerceIn(0, FRAMES_PER_BUFFER - 1)
-                    val isCountIn = barIndex <= cfg.settings.countInBars
-                    val musicalBar = (barIndex - cfg.settings.countInBars).coerceAtLeast(1)
-                    val step = activePattern.steps.getOrNull(stepIndex)
-                        ?: activePattern.steps.firstOrNull()
-                        ?: break
-
-                    val liveKind = if (step.isMainBeat) {
-                        cfg.settings.accentPattern.getOrElse(step.beat) { step.kind }
-                    } else {
-                        step.kind
+                    var chosen: VoiceRuntime? = null
+                    var chosenFrame = Double.MAX_VALUE
+                    for (runtime in runtimes) {
+                        if (runtime == null) continue
+                        val candidate = runtime.nextTickFrame + runtime.frameOffset
+                        if (chosen == null || candidate < chosenFrame) {
+                            chosen = runtime
+                            chosenFrame = candidate
+                        }
                     }
-                    val gapSilent = !isCountIn && PracticeLogic.isGapSilentBar(
-                        musicalBar,
-                        cfg.settings.gapPlayBars,
-                        cfg.settings.gapSilentBars,
-                    )
-                    val muted = PracticeLogic.shouldMuteTick(
-                        random = lcg.nextDouble(),
-                        probability = cfg.settings.muteProbability,
-                        isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
-                        protectFirstBeat = cfg.settings.protectFirstBeat,
-                        isGapSilent = gapSilent,
-                    )
-                    val audible = liveKind.isAudible && !muted
-                    if (audible) {
-                        synth.trigger(
-                            soundSet = cfg.settings.soundSet,
-                            kind = liveKind,
-                            isSubdivision = !step.isMainBeat,
-                            volume = cfg.settings.volume,
-                            startFrame = offset,
-                        )
-                    }
-                    onTick?.invoke(
-                        EngineTick(
-                            bar = if (isCountIn) 0L else musicalBar.toLong(),
-                            beat = step.beat,
-                            sub = step.sub,
-                            kind = liveKind,
-                            isMainBeat = step.isMainBeat,
-                            audible = audible,
-                            isCountIn = isCountIn,
-                            bpm = currentBpm,
-                            countInBarsRemaining = (cfg.settings.countInBars - barIndex + 1).coerceAtLeast(0),
-                        ),
-                    )
+                    if (chosen == null || chosenFrame >= windowEnd) break
 
-                    val gapBeats = activePattern.gapBeatsAfter(stepIndex)
-                    stepIndex++
-                    if (stepIndex >= activePattern.stepCount) {
-                        stepIndex = 0
+                    if (pendingBarAdvance && chosen.isPrimary) {
+                        pendingBarAdvance = false
                         barIndex++
-                        activePattern = patternForBar(cfg, barIndex)
                         val nextIsCountIn = barIndex <= cfg.settings.countInBars
                         val nextMusicalBar = (barIndex - cfg.settings.countInBars).coerceAtLeast(1)
                         currentBpm = if (nextIsCountIn) {
@@ -249,9 +219,78 @@ class MetronomeAudioEngine {
                         } else {
                             PracticeLogic.bpmForBar(cfg.settings, nextMusicalBar, false)
                         }
+                        val nextPattern = if (nextIsCountIn) cfg.countIn else cfg.primary
+                        chosen.pattern = nextPattern
+                        chosen.gridKey = nextPattern.gridKey
+                        chosen.stepIndex = 0
                     }
-                    val framesPerBeat = TempoMath.framesPerBeat(currentBpm, SAMPLE_RATE)
-                    nextTickFrame += gapBeats * framesPerBeat
+
+                    val offset = (chosenFrame - framePosition)
+                        .toInt()
+                        .coerceIn(0, FRAMES_PER_BUFFER - 1)
+                    val isCountIn = barIndex <= cfg.settings.countInBars
+                    val musicalBar = (barIndex - cfg.settings.countInBars).coerceAtLeast(1)
+                    val step = chosen.pattern.steps.getOrNull(chosen.stepIndex)
+                        ?: chosen.pattern.steps.firstOrNull()
+                        ?: break
+
+                    val liveKind = chosen.pattern.accentPattern
+                        .getOrElse(step.pulse) { step.kind }
+                    val gapSilent = !isCountIn && PracticeLogic.isGapSilentBar(
+                        musicalBar,
+                        cfg.settings.gapPlayBars,
+                        cfg.settings.gapSilentBars,
+                    )
+                    val muted = if (chosen.isPrimary) {
+                        PracticeLogic.shouldMuteTick(
+                            random = lcg.nextDouble(),
+                            probability = cfg.settings.muteProbability,
+                            isFirstBeatOfBar = step.beat == 0 && step.sub == 0,
+                            protectFirstBeat = cfg.settings.protectFirstBeat,
+                            isGapSilent = gapSilent,
+                        )
+                    } else {
+                        gapSilent
+                    }
+                    val audible = liveKind.isAudible && !muted && (!isCountIn || chosen.isPrimary)
+                    if (audible) {
+                        synth.trigger(
+                            soundSet = chosen.pattern.soundSet,
+                            kind = liveKind,
+                            isSubdivision = !step.isMainBeat,
+                            volume = cfg.settings.volume * chosen.pattern.gain,
+                            startFrame = offset,
+                        )
+                    }
+                    if (chosen.isPrimary) {
+                        onTick?.invoke(
+                            EngineTick(
+                                bar = if (isCountIn) 0L else musicalBar.toLong(),
+                                beat = step.beat,
+                                sub = step.sub,
+                                kind = liveKind,
+                                isMainBeat = step.isMainBeat,
+                                audible = audible,
+                                isCountIn = isCountIn,
+                                bpm = currentBpm,
+                                countInBarsRemaining = (cfg.settings.countInBars - barIndex + 1)
+                                    .coerceAtLeast(0),
+                            ),
+                        )
+                    }
+
+                    val gapBeats = chosen.pattern.gapBeatsAfter(chosen.stepIndex)
+                    chosen.stepIndex++
+                    chosen.nextTickFrame += gapBeats * TempoMath.framesPerBeat(currentBpm, SAMPLE_RATE)
+                    if (chosen.stepIndex >= chosen.pattern.stepCount) {
+                        chosen.stepIndex = 0
+                        if (chosen.isPrimary) {
+                            // The bar advances when the next primary tick is due,
+                            // not now: a layer tick in between still belongs to
+                            // the old bar (count-in/gap boundaries).
+                            pendingBarAdvance = true
+                        }
+                    }
                 }
 
                 synth.render(buffer, FRAMES_PER_BUFFER)
@@ -285,33 +324,100 @@ class MetronomeAudioEngine {
         }
     }
 
-    private fun patternForBar(cfg: EngineConfig?, barIndex: Int): RhythmPattern {
-        val safe = cfg ?: return RhythmPattern.simple()
-        return if (barIndex <= safe.settings.countInBars) safe.countInPattern else safe.pattern
+    private fun createRuntimes(cfg: EngineConfig): Array<VoiceRuntime?> {
+        val runtimes = arrayOfNulls<VoiceRuntime>(MAX_VOICES)
+        val primaryPattern = if (cfg.settings.countInBars > 0) cfg.countIn else cfg.primary
+        runtimes[0] = VoiceRuntime(
+            pattern = primaryPattern,
+            gridKey = primaryPattern.gridKey,
+            isPrimary = true,
+            frameOffset = 0.0,
+        )
+        cfg.layers.take(LayerSettings.MAX_LAYERS).forEachIndexed { index, layer ->
+            runtimes[index + 1] = VoiceRuntime(
+                pattern = layer,
+                gridKey = layer.gridKey,
+                isPrimary = false,
+                frameOffset = offsetFrames(layer),
+            )
+        }
+        return runtimes
     }
+
+    private fun applyConfig(
+        cfg: EngineConfig,
+        previous: EngineConfig,
+        runtimes: Array<VoiceRuntime?>,
+        framePosition: Long,
+        barIndex: Int,
+    ): Boolean {
+        val currentPrimary = if (barIndex <= cfg.settings.countInBars) cfg.countIn else cfg.primary
+        val primary = runtimes[0] ?: return false
+        var primaryReset = false
+        val countInChanged = cfg.settings.countInBars != previous.settings.countInBars
+        if (primary.gridKey != currentPrimary.gridKey || countInChanged) {
+            primary.stepIndex = 0
+            primary.nextTickFrame = framePosition.toDouble()
+            primaryReset = true
+        }
+        primary.pattern = currentPrimary
+        primary.gridKey = currentPrimary.gridKey
+
+        for (index in 1 until MAX_VOICES) {
+            val runtime = runtimes[index] ?: continue
+            if (cfg.layers.none { it.id == runtime.id }) {
+                runtimes[index] = null
+            }
+        }
+        cfg.layers.take(LayerSettings.MAX_LAYERS).forEach { layer ->
+            var slot = -1
+            for (index in 1 until MAX_VOICES) {
+                if (runtimes[index]?.id == layer.id) {
+                    slot = index
+                    break
+                }
+            }
+            if (slot < 0) {
+                for (index in 1 until MAX_VOICES) {
+                    if (runtimes[index] == null) {
+                        slot = index
+                        break
+                    }
+                }
+            }
+            if (slot < 0) return@forEach
+            val runtime = runtimes[slot]
+            if (runtime == null) {
+                runtimes[slot] = VoiceRuntime(
+                    pattern = layer,
+                    gridKey = layer.gridKey,
+                    isPrimary = false,
+                    frameOffset = offsetFrames(layer),
+                ).also { it.nextTickFrame = framePosition.toDouble() }
+            } else {
+                if (runtime.gridKey != layer.gridKey) {
+                    runtime.stepIndex = 0
+                    runtime.nextTickFrame = framePosition.toDouble()
+                }
+                runtime.pattern = layer
+                runtime.gridKey = layer.gridKey
+                runtime.frameOffset = offsetFrames(layer)
+            }
+        }
+        return primaryReset
+    }
+
+    private fun offsetFrames(pattern: VoicePattern): Double =
+        pattern.offsetMs * SAMPLE_RATE / 1000.0
 
     private fun buildConfig(settings: MetronomeSettings): EngineConfig {
         val normalized = settings.normalized()
-        val pattern = RhythmPattern.build(normalized)
-        val countIn = RhythmPattern.build(
-            normalized.copy(
-                subdivision = Subdivision.QUARTER,
-                swingPercent = 50.0,
-                accentPattern = normalized.accentPattern,
-            ),
-        )
-        val patternKey = listOf(
-            normalized.meter.beatsPerBar,
-            normalized.meter.beatUnit,
-            normalized.meter.grouping,
-            normalized.subdivision.ticksPerBeat,
-            normalized.swingPercent,
-        ).hashCode()
+        val voices = LayerCompiler.compile(normalized)
         return EngineConfig(
             settings = normalized,
-            pattern = pattern,
-            countInPattern = countIn,
-            patternKey = patternKey,
+            primary = voices.first(),
+            countIn = LayerCompiler.compileCountIn(normalized),
+            layers = voices.drop(1),
         )
     }
 
@@ -338,6 +444,7 @@ class MetronomeAudioEngine {
         private const val TAG = "ThaaLamAudio"
         const val SAMPLE_RATE = 48_000
         const val FRAMES_PER_BUFFER = 256
+        private const val MAX_VOICES = 1 + LayerSettings.MAX_LAYERS
         private const val MAX_TICKS_PER_BUFFER = 64
 
         /** Audio stream type hint kept for older platform integrations. */

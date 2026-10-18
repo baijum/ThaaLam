@@ -41,6 +41,7 @@ steps.
 | `meter` | pulses per bar, beat unit, additive grouping |
 | `subdivision` | ticks per pulse (1–9) |
 | `accentPattern` | one `BeatKind` per pulse: accent / normal / ghost / mute |
+| `layers` | up to three additional voices: pulses, cycle length, accents, sound, gain, offset, swing |
 | `swingPercent` | 50–75, applied to odd subdivisions of even grids |
 | `soundSet` | click timbre |
 | `volume` | master gain |
@@ -77,6 +78,22 @@ time (`settings.accentPattern[step.beat]`), not baked into the precomputed
 pattern, so tapping a pulse never restarts the bar. Meter, subdivision and swing
 changes do rebuild the grid and restart it from the current buffer.
 
+### Layers
+
+`LayerCompiler.compile(settings)` turns the primary grid and every enabled
+`LayerSettings` into a list of `VoicePattern` values. A layer is defined by
+`pulses` evenly spaced across `cycleBeats`:
+
+- a **subdivision mixer** layer uses `pulses = beats × ticks` over one bar;
+- a **polyrhythm** layer uses a different pulse count over the primary cycle;
+- a **polymeter** layer uses its own cycle length, so the cycles realign at
+  their least common multiple.
+
+The primary voice keeps the familiar pulse/beat metadata for the UI. Layer steps
+carry a pulse index for live accent resolution. `gridKey` changes only when the
+grid itself changes, so gain, sound, offset and accent edits update the running
+voice without restarting it.
+
 ## 4. Android render loop
 
 `MetronomeAudioEngine` owns a `Thread`:
@@ -86,24 +103,30 @@ Process.setThreadPriority(URGENT_AUDIO)
 AudioTrack(48 kHz, mono, PCM_FLOAT, LOW_LATENCY, MODE_STREAM)
 buffer = FloatArray(256)
 framePosition = 0
-nextTickFrame = 0
 barIndex = 1
-stepIndex = 0
+runtimes[4] = primary + up to three layer cursors
+pendingBarAdvance = false
 ```
 
 Per iteration:
 
 1. Read the latest immutable `EngineConfig` (volatile reference).
-2. If the pattern identity changed, reset `stepIndex` and schedule the new grid
-   from the current frame.
-3. While `nextTickFrame < framePosition + 256`:
-   - compute the sample offset inside the buffer;
+2. Diff each voice by its stable id and `gridKey`. A changed grid resets that
+   voice from the current frame; accent, gain, sound and offset changes only
+   replace the pattern snapshot.
+3. Repeatedly pick the voice whose next tick is earliest inside the buffer:
+   - advance the primary bar only when its next tick is due (layers between the
+     last tick of a bar and the next downbeat still belong to the old bar);
    - resolve the live accent and practice gates;
-   - trigger `ClickSynth` at that offset if audible;
-   - emit an `EngineTick` for the controller;
-   - advance `stepIndex` and `nextTickFrame += gapBeats * framesPerBeat`.
+   - trigger `ClickSynth` at the exact sample offset if audible;
+   - emit an `EngineTick` for the primary voice;
+   - advance that voice's step and `nextTickFrame += gapBeats * framesPerBeat`.
 4. Render all active click voices into the buffer, clipping to [-1, 1].
 5. Block-write the buffer; advance `framePosition` by 256.
+
+Count-in uses the primary voice only. Layers advance silently through the
+count-in so they enter in phase on the first musical bar. Gap bars mute every
+voice; stochastic muting applies to the primary voice. The clock always advances.
 
 The engine is app-scoped through `MetronomeController`, so rotation and Activity
 recreation do not interrupt playback. The foreground service only keeps the
@@ -112,11 +135,11 @@ thread.
 
 ### Click synthesis
 
-`ClickSynth` keeps twelve voices. Each voice has a start delay, phase, harmonic
-phase, exponential envelope, noise amount and square/sine flag. When a bell tail
-is longer than the buffer, `remaining` and the envelope carry into the next
-buffer. New clicks are placed at `startFrame`, so a click scheduled for frame 180
-is mixed at frame 180 rather than at the start of the buffer.
+`ClickSynth` keeps thirty-two voices. Each voice has a start delay, phase,
+harmonic phase, exponential envelope, noise amount and square/sine flag. When a
+bell tail is longer than the buffer, `remaining` and the envelope carry into the
+next buffer. New clicks are placed at `startFrame`, so a click scheduled for
+frame 180 is mixed at frame 180 rather than at the start of the buffer.
 
 Sound presets are parameter tables (base frequency, harmonic ratio, decay, noise,
 waveform). Accents raise pitch and gain; subdivisions lower gain and shorten
@@ -128,18 +151,22 @@ decay; ghost notes are softer. No sample assets, no resampling latency.
 Its render block runs on the real-time audio thread and uses the same algorithm
 as Android, with plain Swift structs:
 
-- `EnginePattern` holds precomputed steps and gaps.
-- `EngineConfig` holds the whole snapshot (pattern, accents, sound, practice
-  settings, pattern key).
-- `RenderState` owns the frame position, next tick, bar/step indices and LCG.
+- `EngineVoice` mirrors one compiled `VoicePattern` (steps, gaps, live accents,
+  sound, gain, frame offset and grid key).
+- `EngineConfig` holds the primary voice, count-in voice, layer voices and
+  practice settings. A monotonic `revision` lets the render thread detect a new
+  snapshot without comparing arrays.
+- `RenderState` owns the frame position, one `VoiceRuntime` per voice, the bar
+  index and the LCG. `pendingBarAdvance` moves the primary bar only when its next
+  tick is due.
 - Configuration updates happen on the main thread and replace the state inside
   an `OSAllocatedUnfairLock`; the render block takes a snapshot at buffer start.
 - The latest tick is stored in a lock-protected `EngineTickSnapshot`. A 60 Hz
   main-thread timer publishes it to `@Published` properties; the audio thread
   never performs UI work or dispatch allocations.
 
-`ClickSynth` mirrors the Android voice model with the same parameter tables. No
-Kotlin call is made inside the render callback.
+`ClickSynth` mirrors the Android voice model with the same parameter tables and a
+thirty-two voice pool. No Kotlin call is made inside the render callback.
 
 The audio session is `.playback` with `.mixWithOthers`, and `Info.plist` declares
 `UIBackgroundModes: [audio]`. Playback stops on an audio interruption
@@ -165,6 +192,16 @@ else:                         play
 The count-in uses a quarter-note version of the same bar and accent pattern, and
 is announced separately to the UI (`isCountIn`, `countInBarsRemaining`). The
 musical bar counter starts at 1 only after count-in.
+
+Layer rules:
+
+- Count-in voices only the primary; layers advance silently so they enter in
+  phase on the first musical bar.
+- Gap bars mute every voice. Stochastic muting applies to the primary voice.
+- A new layer starts at the current frame, never at frame zero, so adding a
+  voice mid-performance cannot emit a burst of catch-up clicks.
+- Removing or disabling a layer drops its runtime; re-enabling starts a fresh
+  phase from the next buffer.
 
 ## 7. Tala compilation
 
@@ -239,21 +276,26 @@ Bluetooth listener sees the flash when they hear the click.
 
 ## 10. Testing strategy
 
-- **Shared unit tests** cover meter normalization, pattern offsets and swing,
-  gap/stochastic/ramp logic, tap tempo, preset round-trips, all 35 Suladi talas,
-  khali markers, theka lengths, and the Swift interop mutations.
+- **Shared unit tests** cover meter normalization, primary and layer pattern
+  offsets and swing, polyrhythm/polymeter compilation, a deterministic
+  frame-level timing simulator, gap/stochastic/ramp logic, tap tempo, preset
+  round-trips including layers, all 35 Suladi talas, khali markers, theka
+  lengths, and the Swift interop mutations.
 - **Android lint** runs as a build gate; the app currently has warnings only.
 - **Manual device/simulator checks** verify layout, transport, tala playback,
-  background service, and light/dark rendering.
+  adding/removing layers while playing, background service, and light/dark
+  rendering.
 - A hardware latency loopback test is still recommended before release, since
   emulator and simulator audio paths are not representative of real output
   latency.
 
 ## 11. Known limitations
 
-- Polyrhythm/polymeter layers and chained mixed-meter setlists are not yet
-  implemented; the engine and tala compiler are ready to feed a multi-voice
-  scheduler.
+- Polyrhythm, polymeter and the subdivision mixer are implemented. Chained
+  mixed-meter songs and setlists are not yet implemented; the engine and tala
+  compiler are ready to feed a song scheduler.
+- The layer UI edits one voice at a time; a composite LCM ring and solo controls
+  are still on the roadmap.
 - No MIDI, Ableton Link or network sync.
 - No practice log or microphone-based rhythm grading.
 - No custom click sample import; the five synthesized timbres are built in.

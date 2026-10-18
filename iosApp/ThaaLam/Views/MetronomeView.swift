@@ -5,6 +5,8 @@ struct MetronomeView: View {
     @EnvironmentObject private var vm: MetronomeViewModel
     @State private var showBpmSheet = false
     @State private var showMeterSheet = false
+    @State private var showLayerPicker = false
+    @State private var editingLayerID: String?
     @State private var practiceExpanded = false
     @State private var flashOpacity = 0.0
     @State private var swingDraft: Double?
@@ -19,19 +21,39 @@ struct MetronomeView: View {
     var body: some View {
         ZStack {
             ThaaLamTheme.background.ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: 16) {
-                    header
-                    tempoCard
-                    transportRow
-                    pulseCard
-                    grooveCard
-                    practiceCard
-                    soundCard
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 16) {
+                        header
+                        tempoCard
+                        transportRow
+                        pulseCard
+                        grooveCard
+                        layersCard
+                            .id("layers")
+                        practiceCard
+                        soundCard
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 100)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 100)
+                .onAppear {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-scrollLayers") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            withAnimation { proxy.scrollTo("layers", anchor: .top) }
+                        }
+                    }
+                    if ProcessInfo.processInfo.arguments.contains("-layerEditor"),
+                       let id = vm.settings.layers.first?.id {
+                        editingLayerID = id
+                    }
+                    if ProcessInfo.processInfo.arguments.contains("-layerPicker") {
+                        showLayerPicker = true
+                    }
+                    #endif
+                }
             }
             if flashOpacity > 0 {
                 ThaaLamTheme.saffron
@@ -51,6 +73,19 @@ struct MetronomeView: View {
                        currentUnit: Int(vm.settings.meter.beatUnit)) { beats, unit, grouping in
                 vm.setMeter(beats: beats, unit: unit, grouping: grouping)
                 showMeterSheet = false
+            }
+        }
+        .sheet(isPresented: $showLayerPicker) {
+            LayerPickerSheet(vm: vm)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { editingLayerID != nil },
+                set: { if !$0 { editingLayerID = nil } }
+            )
+        ) {
+            if let id = editingLayerID {
+                LayerEditorSheet(vm: vm, layerID: id)
             }
         }
         .onChange(of: vm.visualPlayback.beat) { _ in triggerFlash() }
@@ -308,6 +343,83 @@ struct MetronomeView: View {
                 )
                 .font(.system(size: 11))
                 .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+        }
+    }
+
+    private var layersCard: some View {
+        SectionCard(
+            title: "Layers",
+            subtitle: vm.settings.layers.isEmpty
+                ? "One pulse is playing. Add a subdivision, polyrhythm or polymeter voice."
+                : "\(vm.settings.layers.count) extra voice\(vm.settings.layers.count == 1 ? "" : "s") · shared clock and tempo",
+            trailing: {
+                if vm.canAddLayer {
+                    Button {
+                        showLayerPicker = true
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ThaaLamTheme.saffron)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if vm.settings.layers.isEmpty {
+                    Text("Layers are mixed on the audio thread at exact sample positions. They follow count-in, gap and tempo changes.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                } else {
+                    ForEach(vm.settings.layers, id: \.id) { layer in
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(layer.name)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(
+                                        layer.enabled ? ThaaLamTheme.textPrimary : ThaaLamTheme.textSecondary
+                                    )
+                                Text("\(layer.gridLabel) · \(ClickSound(layer.soundSet).displayName)")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(ThaaLamTheme.textSecondary)
+                            }
+                            Spacer(minLength: 4)
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { layer.enabled },
+                                    set: { vm.setLayerEnabled(layer.id, $0) }
+                                )
+                            )
+                            .labelsHidden()
+                            .tint(ThaaLamTheme.saffron)
+                            .accessibilityLabel("Enable \(layer.name)")
+                            Button {
+                                editingLayerID = layer.id
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                                    .foregroundStyle(ThaaLamTheme.saffron)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Edit \(layer.name)")
+                            Button {
+                                vm.removeLayer(layer.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(ThaaLamTheme.coral)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(layer.name)")
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(ThaaLamTheme.surfaceVariant.opacity(0.35))
+                        )
+                    }
+                }
             }
         }
     }
@@ -623,6 +735,290 @@ private func swingLabel(_ percent: Double) -> String {
     case ..<60: return "\(Int(percent.rounded()))% · light shuffle"
     case ..<69: return "\(Int(percent.rounded()))% · triplet swing"
     default: return "\(Int(percent.rounded()))% · dotted"
+    }
+}
+
+private struct LayerPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var vm: MetronomeViewModel
+
+    private let subdivisions: [Subdivision] = [
+        .eighth,
+        .sixteenth,
+        .triplet,
+        .quintuplet,
+        .septuplet,
+        .thirtySecond,
+        .nonuplet,
+    ]
+
+    private let polyrhythms: [(label: String, pulses: Int, cycle: Double)] = [
+        ("3 over 2", 3, 2.0),
+        ("4 over 3", 4, 3.0),
+        ("5 over 4", 5, 4.0),
+        ("7 over 5", 7, 5.0),
+        ("7 over 6", 7, 6.0),
+    ]
+
+    private let polymeters: [(label: String, beats: Int, unit: Int)] = [
+        ("3/4", 3, 4),
+        ("5/4", 5, 4),
+        ("5/8", 5, 8),
+        ("7/8", 7, 8),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Layers share the main clock, count-in, gap training and tempo ramp.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Section("Subdivision") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(subdivisions.enumerated()), id: \.offset) { _, subdivision in
+                                ChipButton(label: subdivision.shortLabel, selected: false) {
+                                    vm.addSubdivisionLayer(subdivision)
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                Section("Polyrhythm") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(polyrhythms.enumerated()), id: \.offset) { _, item in
+                                ChipButton(label: item.label, selected: false) {
+                                    vm.addPolyrhythmLayer(pulses: item.pulses, cycleBeats: item.cycle)
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                Section("Polymeter · layer cycle") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(polymeters.enumerated()), id: \.offset) { _, item in
+                                ChipButton(label: item.label, selected: false) {
+                                    vm.addPolymeterLayer(beats: item.beats, beatUnit: item.unit)
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                Section {
+                    Text("Polyrhythm uses a shared cycle; polymeter gives the layer its own bar length. The main \(vm.settings.meter.label) pulse stays the reference.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+            }
+            .navigationTitle("Add a layer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct LayerEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var vm: MetronomeViewModel
+    let layerID: String
+
+    private var layer: LayerSettings? {
+        vm.settings.layers.first(where: { $0.id == layerID })
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let layer {
+                    editor(layer)
+                } else {
+                    Text("This layer is no longer available.")
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+            }
+            .navigationTitle(layer?.name ?? "Layer")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    @ViewBuilder
+    private func editor(_ layer: LayerSettings) -> some View {
+        Form {
+            Section {
+                Text("\(layer.gridLabel) pulses across \(formatLayerCycle(layer.cycleBeats)) beats. Tap a pulse to cycle accent, normal, ghost and mute.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+            Section {
+                Toggle(
+                    "Enabled",
+                    isOn: Binding(
+                        get: { layer.enabled },
+                        set: { vm.setLayerEnabled(layer.id, $0) }
+                    )
+                )
+                .tint(ThaaLamTheme.saffron)
+            }
+            Section("Grid") {
+                StepperRow(
+                    label: "Pulses",
+                    supportingText: "Events across the layer cycle",
+                    value: "\(layer.pulses)"
+                ) {
+                    vm.setLayerPulses(layer.id, Int(layer.pulses) - 1)
+                } onIncrease: {
+                    vm.setLayerPulses(layer.id, Int(layer.pulses) + 1)
+                }
+                StepperRow(
+                    label: "Cycle",
+                    supportingText: "Short cycles repeat inside a long bar",
+                    value: "\(formatLayerCycle(layer.cycleBeats)) beats"
+                ) {
+                    vm.setLayerCycle(layer.id, max(0.25, layer.cycleBeats - 0.5))
+                } onIncrease: {
+                    vm.setLayerCycle(layer.id, layer.cycleBeats + 0.5)
+                }
+            }
+            Section("Pulse accents") {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 38), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(Array(layer.accentPattern.enumerated()), id: \.offset) { index, kind in
+                        Button {
+                            vm.cycleLayerAccent(layer.id, index: index)
+                        } label: {
+                            ZStack {
+                                Circle().fill(pulseColor(kind))
+                                Text("\(index + 1)")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(pulseTextColor(kind))
+                            }
+                            .frame(width: 36, height: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Layer pulse \(index + 1)")
+                        .accessibilityValue(PulseKind(kind).displayName)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Mix") {
+                HStack {
+                    Text("Gain")
+                    Spacer()
+                    Text("\(Int((layer.gain * 100).rounded()))%")
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { Double(layer.gain) },
+                        set: { vm.setLayerGain(layer.id, $0) }
+                    ),
+                    in: 0...1
+                )
+                .tint(ThaaLamTheme.saffron)
+
+                HStack {
+                    Text("Offset")
+                    Spacer()
+                    Text("\(Int(layer.offsetMs.rounded())) ms")
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { layer.offsetMs },
+                        set: { vm.setLayerOffset(layer.id, $0) }
+                    ),
+                    in: -50...50
+                )
+                .tint(ThaaLamTheme.saffron)
+
+                HStack {
+                    Text("Swing")
+                    Spacer()
+                    Text(swingLabel(layer.swingPercent))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { layer.swingPercent },
+                        set: { vm.setLayerSwing(layer.id, $0) }
+                    ),
+                    in: 50...75
+                )
+                .tint(ThaaLamTheme.saffron)
+                .disabled(layer.pulses % 2 != 0)
+                .opacity(layer.pulses % 2 == 0 ? 1 : 0.4)
+            }
+            Section("Sound") {
+                FlowLayout(spacing: 8, lineSpacing: 6) {
+                    ForEach(ClickSound.allCases) { sound in
+                        ChipButton(
+                            label: sound.displayName,
+                            selected: ClickSound(layer.soundSet) == sound
+                        ) {
+                            vm.setLayerSound(layer.id, sound)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section {
+                Button("Preview sound") {
+                    vm.previewLayer(layer.id)
+                }
+                Button("Remove layer", role: .destructive) {
+                    vm.removeLayer(layer.id)
+                    dismiss()
+                }
+            }
+        }
+    }
+}
+
+private func formatLayerCycle(_ value: Double) -> String {
+    if value == value.rounded() {
+        return String(Int(value))
+    }
+    return String(format: "%.2f", value)
+}
+
+private func pulseColor(_ kind: BeatKind) -> Color {
+    switch PulseKind(kind) {
+    case .accent: return ThaaLamTheme.saffron
+    case .normal: return ThaaLamTheme.teal.opacity(0.55)
+    case .ghost: return ThaaLamTheme.surfaceVariant
+    case .mute: return ThaaLamTheme.border
+    }
+}
+
+private func pulseTextColor(_ kind: BeatKind) -> Color {
+    switch PulseKind(kind) {
+    case .accent: return Color(hex: 0x2A1900)
+    case .normal: return ThaaLamTheme.textPrimary
+    case .ghost, .mute: return ThaaLamTheme.textSecondary
     }
 }
 

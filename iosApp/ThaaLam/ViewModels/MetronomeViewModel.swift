@@ -37,6 +37,9 @@ final class MetronomeViewModel: ObservableObject {
         startPolling()
         observeInterruptions()
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-layers"), settings.layers.isEmpty {
+            addPolyrhythmLayer(pulses: 5, cycleBeats: 4)
+        }
         if ProcessInfo.processInfo.arguments.contains("-autoplay") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.startPlayback()
@@ -282,6 +285,112 @@ final class MetronomeViewModel: ObservableObject {
 
     func preview(_ sound: ClickSound? = nil) {
         engine.preview(sound: sound ?? ClickSound(settings.soundSet), volume: settings.volume)
+    }
+
+    // MARK: - Layers
+
+    var canAddLayer: Bool {
+        settings.layers.count < 3
+    }
+
+    func addSubdivisionLayer(_ subdivision: Subdivision) {
+        let layer = LayerFactory.shared.subdivision(settings: settings, subdivision: subdivision)
+        commit(SettingsMutations.shared.addLayer(settings: settings, layer: layer))
+    }
+
+    func addPolyrhythmLayer(pulses: Int, cycleBeats: Double) {
+        let layer = LayerFactory.shared.polyrhythm(
+            settings: settings,
+            pulses: Int32(pulses),
+            cycleBeats: cycleBeats
+        )
+        commit(SettingsMutations.shared.addLayer(settings: settings, layer: layer))
+    }
+
+    func addPolymeterLayer(beats: Int, beatUnit: Int) {
+        let layer = LayerFactory.shared.polymeter(
+            settings: settings,
+            beats: Int32(beats),
+            beatUnit: Int32(beatUnit)
+        )
+        commit(SettingsMutations.shared.addLayer(settings: settings, layer: layer))
+    }
+
+    func setLayerEnabled(_ id: String, _ enabled: Bool) {
+        commit(
+            SettingsMutations.shared.setLayerEnabled(
+                settings: settings,
+                id: id,
+                enabled: enabled
+            )
+        )
+    }
+
+    func setLayerGain(_ id: String, _ gain: Double) {
+        commit(
+            SettingsMutations.shared.setLayerGain(
+                settings: settings,
+                id: id,
+                gain: gain
+            )
+        )
+    }
+
+    func setLayerOffset(_ id: String, _ offsetMs: Double) {
+        commit(
+            SettingsMutations.shared.setLayerOffset(
+                settings: settings,
+                id: id,
+                offsetMs: offsetMs
+            )
+        )
+    }
+
+    func setLayerSound(_ id: String, _ sound: ClickSound) {
+        commit(
+            SettingsMutations.shared.setLayerSoundSet(
+                settings: settings,
+                id: id,
+                soundSet: sound.shared
+            )
+        )
+    }
+
+    func setLayerPulses(_ id: String, _ pulses: Int) {
+        guard let layer = settings.layers.first(where: { $0.id == id }) else { return }
+        let updated = LayerMutations.shared.setPulses(layer: layer, pulses: Int32(pulses))
+        commit(SettingsMutations.shared.updateLayer(settings: settings, layer: updated))
+    }
+
+    func setLayerCycle(_ id: String, _ cycleBeats: Double) {
+        guard let layer = settings.layers.first(where: { $0.id == id }) else { return }
+        let updated = LayerMutations.shared.setCycleBeats(layer: layer, cycleBeats: cycleBeats)
+        commit(SettingsMutations.shared.updateLayer(settings: settings, layer: updated))
+    }
+
+    func setLayerSwing(_ id: String, _ percent: Double) {
+        guard let layer = settings.layers.first(where: { $0.id == id }) else { return }
+        let updated = LayerMutations.shared.setSwing(layer: layer, percent: percent)
+        commit(SettingsMutations.shared.updateLayer(settings: settings, layer: updated))
+    }
+
+    func cycleLayerAccent(_ id: String, index: Int) {
+        commit(
+            SettingsMutations.shared.cycleLayerAccent(
+                settings: settings,
+                id: id,
+                index: Int32(index)
+            )
+        )
+    }
+
+    func removeLayer(_ id: String) {
+        commit(SettingsMutations.shared.removeLayer(settings: settings, id: id))
+    }
+
+    func previewLayer(_ id: String) {
+        guard let layer = settings.layers.first(where: { $0.id == id }) else { return }
+        engine.preview(sound: ClickSound(layer.soundSet), volume: settings.volume)
     }
 
     // MARK: - Talas

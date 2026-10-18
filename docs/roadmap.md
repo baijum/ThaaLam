@@ -1,9 +1,14 @@
 # ThaaLam roadmap — next feature set
 
-> Status: proposed plan, not started
+> Status: v0.2 in progress
 > Baseline: v0.1.0, commit `f45f89d`
 > Product constraints: offline only, no accounts, no analytics, no ads, no
 > network permissions, no third-party audio SDKs without discussion.
+>
+> v0.2 progress: shared layer model, compiler, timing simulator and tests;
+> multi-voice scheduling on Android and iOS; layer picker/editor on both
+> platforms; preset persistence. Remaining: composite LCM view, solo controls,
+> per-step micro-timing, performance profiling and release QA.
 
 This plan turns the two research reports into a sequenced, release-sized
 roadmap. It is deliberately opinionated: the next release is chosen for

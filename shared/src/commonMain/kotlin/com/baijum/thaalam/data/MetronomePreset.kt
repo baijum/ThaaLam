@@ -17,6 +17,8 @@ data class MetronomePreset(
         get() {
             val parts = mutableListOf(settings.meter.label, settings.subdivision.shortLabel)
             if (settings.swingPercent > 50.5) parts += "${settings.swingPercent.toInt()}% swing"
+            val layerCount = settings.layers.count { it.enabled }
+            if (layerCount > 0) parts += "$layerCount layer${if (layerCount == 1) "" else "s"}"
             settings.talaId?.let { parts += "Tala" }
             return parts.joinToString(" · ")
         }

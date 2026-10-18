@@ -33,8 +33,11 @@ struct EngineTickSnapshot {
     static let idle = EngineTickSnapshot()
 }
 
-private struct EnginePattern {
+/// Plain Swift mirror of one compiled voice. Built on the main thread from the
+/// shared Kotlin compiler; the render callback only reads these values.
+private struct EngineVoice {
     struct Step {
+        let pulse: Int
         let beat: Int
         let sub: Int
         let offset: Double
@@ -42,20 +45,35 @@ private struct EnginePattern {
         let isMain: Bool
     }
 
+    let id: String
     let steps: [Step]
     let gaps: [Double]
-    let lengthBeats: Double
-    let key: Int
+    let accents: [PulseKind]
+    let sound: ClickSound
+    let gain: Float
+    let offsetFrames: Double
+    let gridKey: Int
+    let isPrimary: Bool
 
-    static let empty = EnginePattern(steps: [], gaps: [], lengthBeats: 4, key: 0)
+    static let empty = EngineVoice(
+        id: "empty",
+        steps: [],
+        gaps: [],
+        accents: [],
+        sound: .click,
+        gain: 1,
+        offsetFrames: 0,
+        gridKey: 0,
+        isPrimary: true
+    )
 
-    static func make(pattern: RhythmPattern, key: Int) -> EnginePattern {
-        let source = pattern.steps
+    static func make(voice: VoicePattern) -> EngineVoice {
         var steps: [Step] = []
-        steps.reserveCapacity(source.count)
-        for step in source {
+        steps.reserveCapacity(voice.steps.count)
+        for step in voice.steps {
             steps.append(
                 Step(
+                    pulse: Int(step.pulse),
                     beat: Int(step.beat),
                     sub: Int(step.sub),
                     offset: step.offsetBeats,
@@ -67,18 +85,28 @@ private struct EnginePattern {
         var gaps: [Double] = []
         gaps.reserveCapacity(steps.count)
         for (index, step) in steps.enumerated() {
-            let next = index + 1 < steps.count ? steps[index + 1].offset : pattern.lengthBeats
+            let next = index + 1 < steps.count ? steps[index + 1].offset : voice.cycleBeats
             gaps.append(max(0, next - step.offset))
         }
-        return EnginePattern(steps: steps, gaps: gaps, lengthBeats: pattern.lengthBeats, key: key)
+        return EngineVoice(
+            id: voice.id,
+            steps: steps,
+            gaps: gaps,
+            accents: voice.accentPattern.map { PulseKind($0) },
+            sound: ClickSound(voice.soundSet),
+            gain: voice.gain,
+            offsetFrames: voice.offsetMs * MetronomeAudioEngine.sampleRate / 1000.0,
+            gridKey: Int(voice.gridKey),
+            isPrimary: voice.isPrimary
+        )
     }
 }
 
 private struct EngineConfig {
-    let pattern: EnginePattern
-    let countInPattern: EnginePattern
-    let accentPattern: [PulseKind]
-    let sound: ClickSound
+    let revision: UInt64
+    let primary: EngineVoice
+    let countIn: EngineVoice
+    let layers: [EngineVoice]
     let volume: Float
     let bpm: Double
     let countInBars: Int
@@ -90,13 +118,12 @@ private struct EngineConfig {
     let rampTargetBpm: Double
     let rampStepBpm: Double
     let rampEveryBars: Int
-    let patternKey: Int
 
     static let empty = EngineConfig(
-        pattern: .empty,
-        countInPattern: .empty,
-        accentPattern: [],
-        sound: .click,
+        revision: 0,
+        primary: .empty,
+        countIn: .empty,
+        layers: [],
         volume: 0.8,
         bpm: 100,
         countInBars: 0,
@@ -107,25 +134,17 @@ private struct EngineConfig {
         rampEnabled: false,
         rampTargetBpm: 140,
         rampStepBpm: 2,
-        rampEveryBars: 4,
-        patternKey: 0
+        rampEveryBars: 4
     )
 
-    static func make(settings: MetronomeSettings) -> EngineConfig {
-        let key = Int(PatternFactory.shared.patternKey(settings: settings))
-        let pattern = EnginePattern.make(
-            pattern: PatternFactory.shared.build(settings: settings),
-            key: key
-        )
-        let countIn = EnginePattern.make(
-            pattern: PatternFactory.shared.buildCountIn(settings: settings),
-            key: key
-        )
+    static func make(settings: MetronomeSettings, revision: UInt64) -> EngineConfig {
+        let voices = PatternFactory.shared.voices(settings: settings)
+        guard let primary = voices.first else { return .empty }
         return EngineConfig(
-            pattern: pattern,
-            countInPattern: countIn,
-            accentPattern: settings.accentPattern.map { PulseKind($0) },
-            sound: ClickSound(settings.soundSet),
+            revision: revision,
+            primary: EngineVoice.make(voice: primary),
+            countIn: EngineVoice.make(voice: PatternFactory.shared.countInVoice(settings: settings)),
+            layers: voices.dropFirst().map { EngineVoice.make(voice: $0) },
             volume: settings.volume,
             bpm: settings.bpm,
             countInBars: Int(settings.countInBars),
@@ -136,26 +155,42 @@ private struct EngineConfig {
             rampEnabled: settings.rampEnabled,
             rampTargetBpm: settings.rampTargetBpm,
             rampStepBpm: settings.rampStepBpm,
-            rampEveryBars: Int(settings.rampEveryBars),
-            patternKey: key
+            rampEveryBars: Int(settings.rampEveryBars)
         )
+    }
+}
+
+private final class VoiceRuntime {
+    var pattern: EngineVoice
+    var stepIndex = 0
+    var nextTickFrame = 0.0
+    let isPrimary: Bool
+    var frameOffset: Double
+
+    init(pattern: EngineVoice, isPrimary: Bool, frameOffset: Double) {
+        self.pattern = pattern
+        self.isPrimary = isPrimary
+        self.frameOffset = frameOffset
     }
 }
 
 /// Mutable render state. Only touched by the audio thread while the engine runs
 /// (and by `reset` on the main thread immediately before it starts).
 private final class RenderState {
+    private static let maxVoices = 4
+
     let configLock = OSAllocatedUnfairLock<EngineConfig>(initialState: .empty)
     let tickLock = OSAllocatedUnfairLock<EngineTickSnapshot>(initialState: .idle)
     let synth = ClickSynth()
 
     private(set) var framePosition = 0.0
-    private var nextTickFrame = 0.0
-    private var stepIndex = 0
+    private var runtimes: [VoiceRuntime?] = []
     private var barIndex = 1
     private var currentBpm = 100.0
     private var lastBaseBpm = 100.0
-    private var lastPatternKey = 0
+    private var lastRevision: UInt64 = 0
+    private var lastCountInBars = 0
+    private var pendingBarAdvance = false
     private var tickID: UInt64 = 0
     private var rng: UInt64 = 0x9E37_79B9_7F4A_7C15
 
@@ -166,14 +201,15 @@ private final class RenderState {
 
     func reset(config: EngineConfig) {
         framePosition = 0
-        nextTickFrame = 0
-        stepIndex = 0
         barIndex = 1
         currentBpm = config.bpm
         lastBaseBpm = config.bpm
-        lastPatternKey = config.patternKey
+        lastRevision = config.revision
+        lastCountInBars = config.countInBars
+        pendingBarAdvance = false
         tickID = 0
         rng = 0x9E37_79B9_7F4A_7C15
+        runtimes = makeRuntimes(config: config)
         synth.reset()
         tickLock.withLockUnchecked { $0 = .idle }
     }
@@ -190,15 +226,16 @@ private final class RenderState {
         }
 
         let config = configLock.withLockUnchecked { $0 }
-        if config.pattern.steps.isEmpty {
+        if config.primary.steps.isEmpty {
             for i in 0..<frames { data[i] = 0 }
             return noErr
         }
 
-        if config.patternKey != lastPatternKey {
-            lastPatternKey = config.patternKey
-            stepIndex = 0
-            nextTickFrame = framePosition
+        if config.revision != lastRevision {
+            if applyConfig(config, framePosition: framePosition) {
+                pendingBarAdvance = false
+            }
+            lastRevision = config.revision
         }
         if config.bpm != lastBaseBpm {
             lastBaseBpm = config.bpm
@@ -207,17 +244,40 @@ private final class RenderState {
 
         let windowEnd = framePosition + Double(frames)
         var guardCount = 0
-        while nextTickFrame < windowEnd && guardCount < 64 {
+        while guardCount < 64 {
             guardCount += 1
-            let offset = max(0, min(frames - 1, Int(nextTickFrame - framePosition)))
+            var chosen: VoiceRuntime?
+            var chosenFrame = Double.greatestFiniteMagnitude
+            for runtime in runtimes {
+                guard let runtime else { continue }
+                let frame = runtime.nextTickFrame + runtime.frameOffset
+                if chosen == nil || frame < chosenFrame {
+                    chosen = runtime
+                    chosenFrame = frame
+                }
+            }
+            guard let runtime = chosen, chosenFrame < windowEnd else { break }
+
+            if pendingBarAdvance && runtime.isPrimary {
+                pendingBarAdvance = false
+                barIndex += 1
+                let nextIsCountIn = barIndex <= config.countInBars
+                let nextMusicalBar = max(1, barIndex - config.countInBars)
+                currentBpm = nextIsCountIn
+                    ? config.bpm
+                    : Self.bpmForBar(config: config, bar: nextMusicalBar)
+                runtime.pattern = nextIsCountIn ? config.countIn : config.primary
+                runtime.stepIndex = 0
+            }
+
+            let offset = max(0, min(frames - 1, Int(chosenFrame - framePosition)))
             let isCountIn = barIndex <= config.countInBars
             let musicalBar = max(1, barIndex - config.countInBars)
-            let pattern = isCountIn ? config.countInPattern : config.pattern
-            guard !pattern.steps.isEmpty else { break }
-            let step = pattern.steps[min(stepIndex, pattern.steps.count - 1)]
+            guard !runtime.pattern.steps.isEmpty else { break }
+            let step = runtime.pattern.steps[min(runtime.stepIndex, runtime.pattern.steps.count - 1)]
             let liveKind: PulseKind = {
-                if step.isMain, step.beat >= 0, step.beat < config.accentPattern.count {
-                    return config.accentPattern[step.beat]
+                if step.pulse >= 0, step.pulse < runtime.pattern.accents.count {
+                    return runtime.pattern.accents[step.pulse]
                 }
                 return step.kind
             }()
@@ -227,56 +287,134 @@ private final class RenderState {
                 playBars: config.gapPlayBars,
                 silentBars: config.gapSilentBars
             )
-            let muted = Self.shouldMute(
-                random: nextRandom(),
-                probability: config.muteProbability,
-                isFirstBeat: step.beat == 0 && step.sub == 0,
-                protectFirstBeat: config.protectFirstBeat,
-                isGapSilent: gapSilent
-            )
-            let audible = liveKind.isAudible && !muted
+            let muted: Bool = {
+                if !runtime.isPrimary { return gapSilent }
+                return Self.shouldMute(
+                    random: nextRandom(),
+                    probability: config.muteProbability,
+                    isFirstBeat: step.beat == 0 && step.sub == 0,
+                    protectFirstBeat: config.protectFirstBeat,
+                    isGapSilent: gapSilent
+                )
+            }()
+            let audible = liveKind.isAudible && !muted && (!isCountIn || runtime.isPrimary)
             if audible {
                 synth.trigger(
-                    sound: config.sound,
+                    sound: runtime.pattern.sound,
                     kind: liveKind,
                     isSubdivision: !step.isMain,
-                    volume: config.volume,
+                    volume: config.volume * runtime.pattern.gain,
                     startFrame: offset
                 )
             }
 
-            tickID &+= 1
-            let snapshot = EngineTickSnapshot(
-                id: tickID,
-                bar: isCountIn ? 0 : musicalBar,
-                beat: step.beat,
-                sub: step.sub,
-                kind: liveKind,
-                isMain: step.isMain,
-                audible: audible,
-                isCountIn: isCountIn,
-                countInRemaining: max(0, config.countInBars - barIndex + 1),
-                bpm: currentBpm
-            )
-            tickLock.withLockUnchecked { $0 = snapshot }
-
-            let gapBeats = stepIndex < pattern.gaps.count ? pattern.gaps[stepIndex] : 1.0
-            stepIndex += 1
-            if stepIndex >= pattern.steps.count {
-                stepIndex = 0
-                barIndex += 1
-                let nextIsCountIn = barIndex <= config.countInBars
-                let nextMusicalBar = max(1, barIndex - config.countInBars)
-                currentBpm = nextIsCountIn
-                    ? config.bpm
-                    : Self.bpmForBar(config: config, bar: nextMusicalBar)
+            if runtime.isPrimary {
+                tickID &+= 1
+                let snapshot = EngineTickSnapshot(
+                    id: tickID,
+                    bar: isCountIn ? 0 : musicalBar,
+                    beat: step.beat,
+                    sub: step.sub,
+                    kind: liveKind,
+                    isMain: step.isMain,
+                    audible: audible,
+                    isCountIn: isCountIn,
+                    countInRemaining: max(0, config.countInBars - barIndex + 1),
+                    bpm: currentBpm
+                )
+                tickLock.withLockUnchecked { $0 = snapshot }
             }
-            nextTickFrame += gapBeats * (60.0 / max(10.0, currentBpm)) * MetronomeAudioEngine.sampleRate
+
+            let gapBeats = runtime.stepIndex < runtime.pattern.gaps.count
+                ? runtime.pattern.gaps[runtime.stepIndex]
+                : 1.0
+            runtime.stepIndex += 1
+            runtime.nextTickFrame += gapBeats
+                * (60.0 / max(10.0, currentBpm))
+                * MetronomeAudioEngine.sampleRate
+            if runtime.stepIndex >= runtime.pattern.steps.count {
+                runtime.stepIndex = 0
+                if runtime.isPrimary {
+                    // Advance the bar only when the next primary tick is due.
+                    // A layer tick in between still belongs to the old bar.
+                    pendingBarAdvance = true
+                }
+            }
         }
 
         synth.render(into: data, frames: frames)
         framePosition += Double(frames)
         return noErr
+    }
+
+    private func makeRuntimes(config: EngineConfig) -> [VoiceRuntime?] {
+        var runtimes = [VoiceRuntime?](repeating: nil, count: Self.maxVoices)
+        let primaryPattern = config.countInBars > 0 ? config.countIn : config.primary
+        runtimes[0] = VoiceRuntime(pattern: primaryPattern, isPrimary: true, frameOffset: 0)
+        for (index, layer) in config.layers.prefix(Self.maxVoices - 1).enumerated() {
+            runtimes[index + 1] = VoiceRuntime(
+                pattern: layer,
+                isPrimary: false,
+                frameOffset: layer.offsetFrames
+            )
+        }
+        return runtimes
+    }
+
+    /// Applies a new config without stopping the clock. Returns true when the
+    /// primary grid restarted and a pending bar advance must be discarded.
+    private func applyConfig(_ config: EngineConfig, framePosition: Double) -> Bool {
+        let currentPrimary = barIndex <= config.countInBars ? config.countIn : config.primary
+        guard runtimes.count > 0, let primary = runtimes[0] else { return false }
+        var primaryReset = false
+        if primary.pattern.gridKey != currentPrimary.gridKey ||
+            config.countInBars != lastCountInBars {
+            primary.stepIndex = 0
+            primary.nextTickFrame = framePosition
+            primaryReset = true
+        }
+        primary.pattern = currentPrimary
+
+        for index in 1..<Self.maxVoices {
+            guard let runtime = runtimes[index] else { continue }
+            if !config.layers.contains(where: { $0.id == runtime.pattern.id }) {
+                runtimes[index] = nil
+            }
+        }
+        for layer in config.layers.prefix(Self.maxVoices - 1) {
+            var slot: Int?
+            for index in 1..<Self.maxVoices {
+                if runtimes[index]?.pattern.id == layer.id {
+                    slot = index
+                    break
+                }
+            }
+            if slot == nil {
+                for index in 1..<Self.maxVoices where runtimes[index] == nil {
+                    slot = index
+                    break
+                }
+            }
+            guard let index = slot else { continue }
+            if let runtime = runtimes[index] {
+                if runtime.pattern.gridKey != layer.gridKey {
+                    runtime.stepIndex = 0
+                    runtime.nextTickFrame = framePosition
+                }
+                runtime.pattern = layer
+                runtime.frameOffset = layer.offsetFrames
+            } else {
+                let runtime = VoiceRuntime(
+                    pattern: layer,
+                    isPrimary: false,
+                    frameOffset: layer.offsetFrames
+                )
+                runtime.nextTickFrame = framePosition
+                runtimes[index] = runtime
+            }
+        }
+        lastCountInBars = config.countInBars
+        return primaryReset
     }
 
     private func nextRandom() -> Double {
@@ -317,7 +455,7 @@ private final class RenderState {
     }
 }
 
-/// Sample-accurate metronome engine for iOS.
+/// Sample-accurate multi-voice metronome engine for iOS.
 ///
 /// Scheduling happens inside `AVAudioSourceNode`'s render callback and is
 /// derived solely from rendered frame counts. The render path avoids the Kotlin
@@ -330,6 +468,7 @@ final class MetronomeAudioEngine {
     private let state = RenderState(config: .empty)
     private var sourceNode: AVAudioSourceNode?
     private(set) var isRunning = false
+    private var revision: UInt64 = 0
     private var previewEngine: AVAudioEngine?
     private var previewPlayer: AVAudioPlayerNode?
 
@@ -354,7 +493,8 @@ final class MetronomeAudioEngine {
             update(settings: settings)
             return true
         }
-        let config = EngineConfig.make(settings: settings)
+        revision &+= 1
+        let config = EngineConfig.make(settings: settings, revision: revision)
         state.configLock.withLockUnchecked { $0 = config }
         state.reset(config: config)
         configureSession(active: true)
@@ -370,7 +510,8 @@ final class MetronomeAudioEngine {
     }
 
     func update(settings: MetronomeSettings) {
-        let config = EngineConfig.make(settings: settings)
+        revision &+= 1
+        let config = EngineConfig.make(settings: settings, revision: revision)
         state.configLock.withLockUnchecked { $0 = config }
     }
 

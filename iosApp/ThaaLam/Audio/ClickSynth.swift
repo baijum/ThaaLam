@@ -2,7 +2,7 @@ import Foundation
 
 /// Additive click synthesiser for the realtime render callback.
 ///
-/// Mirrors the Android implementation: twelve polyphonic voices, exponential
+/// Mirrors the Android implementation: thirty-two polyphonic voices, exponential
 /// decay, a noise transient and optional square-wave timbres. Voices survive
 /// buffer boundaries and support a sample offset so a click can begin at the
 /// exact frame it is scheduled for.
@@ -84,7 +84,7 @@ final class ClickSynth {
         }
     }
 
-    private var voices: [Voice] = (0..<12).map { _ in Voice() }
+    private var voices: [Voice] = (0..<32).map { _ in Voice() }
 
     func trigger(
         sound: ClickSound,

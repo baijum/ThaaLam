@@ -1,11 +1,13 @@
 package com.baijum.thaalam.domain
 
 import com.baijum.thaalam.data.BeatKind
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
+import kotlin.math.roundToInt
 
 /**
  * Swift-friendly mutation helpers.
@@ -84,6 +86,87 @@ object SettingsMutations {
         rampEveryBars = everyBars,
     ).normalized()
 
+    // ---------------------------------------------------------------------
+    // Layers
+    // ---------------------------------------------------------------------
+
+    fun setLayers(
+        settings: MetronomeSettings,
+        layers: List<LayerSettings>,
+    ): MetronomeSettings = settings.copy(layers = layers).normalized()
+
+    fun addLayer(
+        settings: MetronomeSettings,
+        layer: LayerSettings,
+    ): MetronomeSettings {
+        if (settings.layers.size >= LayerSettings.MAX_LAYERS) return settings
+        return settings.copy(layers = settings.layers + layer).normalized()
+    }
+
+    fun updateLayer(
+        settings: MetronomeSettings,
+        layer: LayerSettings,
+    ): MetronomeSettings {
+        if (settings.layers.none { it.id == layer.id }) return settings
+        return settings.copy(
+            layers = settings.layers.map { if (it.id == layer.id) layer else it },
+        ).normalized()
+    }
+
+    fun removeLayer(settings: MetronomeSettings, id: String): MetronomeSettings =
+        settings.copy(layers = settings.layers.filterNot { it.id == id }).normalized()
+
+    fun clearLayers(settings: MetronomeSettings): MetronomeSettings =
+        settings.copy(layers = emptyList()).normalized()
+
+    fun setLayerEnabled(
+        settings: MetronomeSettings,
+        id: String,
+        enabled: Boolean,
+    ): MetronomeSettings = mutateLayer(settings, id) { it.copy(enabled = enabled) }
+
+    fun setLayerGain(
+        settings: MetronomeSettings,
+        id: String,
+        gain: Double,
+    ): MetronomeSettings = mutateLayer(settings, id) { it.copy(gain = gain.toFloat()) }
+
+    fun setLayerOffset(
+        settings: MetronomeSettings,
+        id: String,
+        offsetMs: Double,
+    ): MetronomeSettings = mutateLayer(settings, id) { it.copy(offsetMs = offsetMs) }
+
+    fun setLayerSoundSet(
+        settings: MetronomeSettings,
+        id: String,
+        soundSet: SoundSet,
+    ): MetronomeSettings = mutateLayer(settings, id) { it.copy(soundSet = soundSet) }
+
+    fun cycleLayerAccent(
+        settings: MetronomeSettings,
+        id: String,
+        index: Int,
+    ): MetronomeSettings = mutateLayer(settings, id) { layer ->
+        val pattern = layer.accentPattern.toMutableList()
+        if (index in pattern.indices) {
+            pattern[index] = MetronomeStateLogic.cycleBeatType(pattern[index])
+        }
+        layer.copy(accentPattern = pattern)
+    }
+
+    private fun mutateLayer(
+        settings: MetronomeSettings,
+        id: String,
+        transform: (LayerSettings) -> LayerSettings,
+    ): MetronomeSettings {
+        val index = settings.layers.indexOfFirst { it.id == id }
+        if (index < 0) return settings
+        val layers = settings.layers.toMutableList()
+        layers[index] = transform(layers[index])
+        return settings.copy(layers = layers).normalized()
+    }
+
     fun reset(): MetronomeSettings = MetronomeSettings().normalized()
 
     private fun parseGrouping(text: String): List<Int>? {
@@ -97,7 +180,7 @@ object SettingsMutations {
     }
 }
 
-/** Factory for [RhythmPattern] that Swift can call without companion interop noise. */
+/** Factory for compiled voices that Swift can call without companion interop noise. */
 object PatternFactory {
     fun build(settings: MetronomeSettings): RhythmPattern = RhythmPattern.build(settings)
 
@@ -105,14 +188,127 @@ object PatternFactory {
         settings.copy(subdivision = Subdivision.QUARTER, swingPercent = 50.0),
     )
 
-    /** Stable identity for the pattern-affecting part of a settings snapshot. */
-    fun patternKey(settings: MetronomeSettings): Int = listOf(
-        settings.meter.beatsPerBar,
-        settings.meter.beatUnit,
-        settings.meter.grouping,
-        settings.subdivision.ticksPerBeat,
-        settings.swingPercent,
-    ).hashCode()
+    /** Primary voice followed by every enabled layer. */
+    fun voices(settings: MetronomeSettings): List<VoicePattern> =
+        LayerCompiler.compile(settings)
+
+    /** Quarter-note count-in voice for the current meter and accents. */
+    fun countInVoice(settings: MetronomeSettings): VoicePattern =
+        LayerCompiler.compileCountIn(settings)
+
+    /** Stable identity for every grid in the settings snapshot. */
+    fun patternKey(settings: MetronomeSettings): Int =
+        LayerCompiler.patternKey(settings)
+}
+
+/** Templates for new layers, shared by the Android and iOS layer editors. */
+object LayerFactory {
+    fun subdivision(
+        settings: MetronomeSettings,
+        subdivision: Subdivision,
+    ): LayerSettings {
+        val beats = settings.meter.normalized().beatsPerBar
+        val pulses = (beats * subdivision.ticksPerBeat)
+            .coerceIn(LayerSettings.MIN_PULSES, LayerSettings.MAX_PULSES)
+        return LayerSettings(
+            id = "layer-${subdivision.name.lowercase()}",
+            name = subdivision.displayName,
+            pulses = pulses,
+            cycleBeats = beats.toDouble(),
+            accentPattern = LayerSettings.defaultAccentPattern(pulses),
+            soundSet = settings.soundSet,
+            gain = 0.65f,
+        ).normalized()
+    }
+
+    fun polyrhythm(
+        settings: MetronomeSettings,
+        pulses: Int,
+        cycleBeats: Double,
+    ): LayerSettings {
+        val safePulses = pulses.coerceIn(LayerSettings.MIN_PULSES, LayerSettings.MAX_PULSES)
+        val safeCycle = cycleBeats.coerceIn(
+            LayerSettings.MIN_CYCLE_BEATS,
+            LayerSettings.MAX_CYCLE_BEATS,
+        )
+        return LayerSettings(
+            id = "layer-poly-${safePulses}-${(safeCycle * 100).roundToInt()}",
+            name = "${safePulses} over ${formatBeats(safeCycle)}",
+            pulses = safePulses,
+            cycleBeats = safeCycle,
+            accentPattern = LayerSettings.defaultAccentPattern(safePulses),
+            soundSet = settings.soundSet,
+            gain = 0.6f,
+        ).normalized()
+    }
+
+    fun polymeter(
+        settings: MetronomeSettings,
+        beats: Int,
+        beatUnit: Int,
+    ): LayerSettings {
+        val primary = settings.meter.normalized()
+        val safeBeats = beats.coerceIn(1, 32)
+        val safeUnit = beatUnit.takeIf { it in listOf(2, 4, 8, 16) } ?: 4
+        val cycle = (safeBeats * primary.beatUnit.toDouble() / safeUnit)
+            .coerceIn(LayerSettings.MIN_CYCLE_BEATS, LayerSettings.MAX_CYCLE_BEATS)
+        return LayerSettings(
+            id = "layer-poly-meter-$safeBeats-$safeUnit",
+            name = "$safeBeats/$safeUnit cycle",
+            pulses = safeBeats,
+            cycleBeats = cycle,
+            accentPattern = LayerSettings.defaultAccentPattern(safeBeats),
+            soundSet = settings.soundSet,
+            gain = 0.6f,
+        ).normalized()
+    }
+
+    fun defaultPolyrhythm(settings: MetronomeSettings): LayerSettings =
+        polyrhythm(settings, pulses = 3, cycleBeats = 2.0)
+
+    private fun formatBeats(value: Double): String =
+        if (value == value.toInt().toDouble()) {
+            value.toInt().toString()
+        } else {
+            ((value * 10.0).roundToInt() / 10.0).toString()
+        }
+}
+
+/** Layer-only mutations used by SwiftUI before a settings update. */
+object LayerMutations {
+    fun setEnabled(layer: LayerSettings, enabled: Boolean): LayerSettings =
+        layer.copy(enabled = enabled).normalized()
+
+    fun rename(layer: LayerSettings, name: String): LayerSettings {
+        val trimmed = name.trim()
+        return if (trimmed.isEmpty()) layer else layer.copy(name = trimmed).normalized()
+    }
+
+    fun setPulses(layer: LayerSettings, pulses: Int): LayerSettings =
+        layer.copy(pulses = pulses).normalized()
+
+    fun setCycleBeats(layer: LayerSettings, cycleBeats: Double): LayerSettings =
+        layer.copy(cycleBeats = cycleBeats).normalized()
+
+    fun setGain(layer: LayerSettings, gain: Double): LayerSettings =
+        layer.copy(gain = gain.toFloat()).normalized()
+
+    fun setOffset(layer: LayerSettings, offsetMs: Double): LayerSettings =
+        layer.copy(offsetMs = offsetMs).normalized()
+
+    fun setSwing(layer: LayerSettings, percent: Double): LayerSettings =
+        layer.copy(swingPercent = percent).normalized()
+
+    fun setSoundSet(layer: LayerSettings, soundSet: SoundSet): LayerSettings =
+        layer.copy(soundSet = soundSet).normalized()
+
+    fun cycleAccent(layer: LayerSettings, index: Int): LayerSettings {
+        val pattern = layer.accentPattern.toMutableList()
+        if (index in pattern.indices) {
+            pattern[index] = MetronomeStateLogic.cycleBeatType(pattern[index])
+        }
+        return layer.copy(accentPattern = pattern).normalized()
+    }
 }
 
 /** Factory for presets and the starter library shared by both platforms. */

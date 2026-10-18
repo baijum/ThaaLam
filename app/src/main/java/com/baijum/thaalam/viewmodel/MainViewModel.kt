@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.baijum.thaalam.audio.MetronomeController
 import com.baijum.thaalam.audio.PlaybackState
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
@@ -90,6 +91,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setVolume(volume: Float) = controller.setVolume(volume)
     fun previewCurrentSound() = controller.previewSound()
+
+    // Layers
+    fun addSubdivisionLayer(subdivision: Subdivision) =
+        controller.addSubdivisionLayer(subdivision)
+
+    fun addPolyrhythmLayer(pulses: Int, cycleBeats: Double) =
+        controller.addPolyrhythmLayer(pulses, cycleBeats)
+
+    fun addPolymeterLayer(beats: Int, beatUnit: Int) =
+        controller.addPolymeterLayer(beats, beatUnit)
+
+    fun addLayer(layer: LayerSettings) = controller.addLayer(layer)
+    fun removeLayer(id: String) = controller.removeLayer(id)
+    fun clearLayers() = controller.clearLayers()
+    fun setLayerEnabled(id: String, enabled: Boolean) = controller.setLayerEnabled(id, enabled)
+    fun setLayerGain(id: String, gain: Float) = controller.setLayerGain(id, gain)
+    fun setLayerOffset(id: String, offsetMs: Double) = controller.setLayerOffset(id, offsetMs)
+    fun setLayerSound(id: String, soundSet: SoundSet) = controller.setLayerSound(id, soundSet)
+    fun setLayerPulses(id: String, pulses: Int) = controller.setLayerPulses(id, pulses)
+    fun setLayerCycleBeats(id: String, cycleBeats: Double) =
+        controller.setLayerCycleBeats(id, cycleBeats)
+
+    fun setLayerSwing(id: String, percent: Double) = controller.setLayerSwing(id, percent)
+    fun cycleLayerAccent(id: String, index: Int) = controller.cycleLayerAccent(id, index)
+    fun previewLayer(id: String) = controller.previewLayer(id)
 
     // Talas
     fun applyTala(tala: Tala, nadai: Subdivision, autoStart: Boolean) {

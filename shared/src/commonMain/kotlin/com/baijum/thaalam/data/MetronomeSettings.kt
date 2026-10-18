@@ -20,6 +20,11 @@ data class MetronomeSettings(
         BeatKind.NORMAL,
         BeatKind.NORMAL,
     ),
+    /**
+     * Additional voices mixed over the primary pulse. Empty means the original
+     * single-voice metronome. See [LayerSettings].
+     */
+    val layers: List<LayerSettings> = emptyList(),
     /** 50 = straight, 66.7 = triplet shuffle, 75 = dotted-sixteenth feel. */
     val swingPercent: Double = 50.0,
     val soundSet: SoundSet = SoundSet.CLICK,
@@ -58,6 +63,7 @@ data class MetronomeSettings(
             meter = safeMeter,
             subdivision = subdivision,
             accentPattern = safePattern,
+            layers = LayerSettings.normalizedList(layers),
             swingPercent = swingPercent.coerceIn(MIN_SWING, MAX_SWING),
             volume = volume.coerceIn(0f, 1f),
             countInBars = countInBars.coerceIn(0, 4),

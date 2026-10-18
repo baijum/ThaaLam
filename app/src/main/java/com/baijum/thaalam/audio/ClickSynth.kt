@@ -180,6 +180,6 @@ class ClickSynth(private val sampleRate: Int) {
     }
 
     private companion object {
-        const val VOICE_COUNT = 12
+        const val VOICE_COUNT = 32
     }
 }

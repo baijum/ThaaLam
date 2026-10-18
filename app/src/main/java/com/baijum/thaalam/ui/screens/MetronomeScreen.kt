@@ -25,8 +25,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -44,6 +48,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,6 +77,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.baijum.thaalam.audio.PlaybackState
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
@@ -107,6 +113,8 @@ fun MetronomeScreen(
 
     var showBpmDialog by rememberSaveable { mutableStateOf(false) }
     var showMeterDialog by rememberSaveable { mutableStateOf(false) }
+    var showLayerPicker by rememberSaveable { mutableStateOf(false) }
+    var editingLayerId by rememberSaveable { mutableStateOf<String?>(null) }
     var practiceExpanded by rememberSaveable { mutableStateOf(false) }
 
     val displayBpm = if (playback.isPlaying && settings.rampEnabled) {
@@ -176,6 +184,15 @@ fun MetronomeScreen(
                 )
             }
             item {
+                LayersCard(
+                    settings = settings,
+                    onAdd = { showLayerPicker = true },
+                    onEdit = { editingLayerId = it },
+                    onToggle = viewModel::setLayerEnabled,
+                    onRemove = viewModel::removeLayer,
+                )
+            }
+            item {
                 PracticeCard(
                     settings = settings,
                     expanded = practiceExpanded,
@@ -225,6 +242,48 @@ fun MetronomeScreen(
                 showMeterDialog = false
             },
         )
+    }
+    if (showLayerPicker) {
+        LayerPickerDialog(
+            settings = settings,
+            onDismiss = { showLayerPicker = false },
+            onSubdivision = {
+                viewModel.addSubdivisionLayer(it)
+                showLayerPicker = false
+            },
+            onPolyrhythm = { pulses, cycle ->
+                viewModel.addPolyrhythmLayer(pulses, cycle)
+                showLayerPicker = false
+            },
+            onPolymeter = { beats, unit ->
+                viewModel.addPolymeterLayer(beats, unit)
+                showLayerPicker = false
+            },
+        )
+    }
+    editingLayerId?.let { id ->
+        val layer = settings.layers.firstOrNull { it.id == id }
+        if (layer == null) {
+            editingLayerId = null
+        } else {
+            LayerEditorDialog(
+                layer = layer,
+                onDismiss = { editingLayerId = null },
+                onEnabled = { viewModel.setLayerEnabled(id, it) },
+                onPulses = { viewModel.setLayerPulses(id, it) },
+                onCycle = { viewModel.setLayerCycleBeats(id, it) },
+                onAccent = { viewModel.cycleLayerAccent(id, it) },
+                onGain = { viewModel.setLayerGain(id, it) },
+                onOffset = { viewModel.setLayerOffset(id, it) },
+                onSwing = { viewModel.setLayerSwing(id, it) },
+                onSound = { viewModel.setLayerSound(id, it) },
+                onPreview = { viewModel.previewLayer(id) },
+                onDelete = {
+                    viewModel.removeLayer(id)
+                    editingLayerId = null
+                },
+            )
+        }
     }
 }
 
@@ -546,6 +605,375 @@ private fun GrooveCard(
         )
     }
 }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LayersCard(
+    settings: MetronomeSettings,
+    onAdd: () -> Unit,
+    onEdit: (String) -> Unit,
+    onToggle: (String, Boolean) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    SectionCard(
+        title = "Layers",
+        subtitle = if (settings.layers.isEmpty()) {
+            "One pulse is playing. Add a subdivision, polyrhythm or polymeter voice."
+        } else {
+            "${settings.layers.size} extra voice${if (settings.layers.size == 1) "" else "s"} · shared clock and tempo"
+        },
+        trailing = {
+            if (settings.layers.size < LayerSettings.MAX_LAYERS) {
+                TextButton(onClick = onAdd) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Add")
+                }
+            }
+        },
+    ) {
+        if (settings.layers.isEmpty()) {
+            Text(
+                text = "Layers are mixed on the audio thread at exact sample positions. " +
+                    "They follow count-in, gap and tempo changes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            settings.layers.forEach { layer ->
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = layer.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (layer.enabled) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                            Text(
+                                text = "${layer.gridLabel} · ${layer.soundSet.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = layer.enabled,
+                            onCheckedChange = { onToggle(layer.id, it) },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Enable ${layer.name}"
+                            },
+                        )
+                        IconButton(onClick = { onEdit(layer.id) }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit ${layer.name}")
+                        }
+                        IconButton(onClick = { onRemove(layer.id) }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Remove ${layer.name}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LayerPickerDialog(
+    settings: MetronomeSettings,
+    onDismiss: () -> Unit,
+    onSubdivision: (Subdivision) -> Unit,
+    onPolyrhythm: (Int, Double) -> Unit,
+    onPolymeter: (Int, Int) -> Unit,
+) {
+    val subdivisions = listOf(
+        Subdivision.EIGHTH,
+        Subdivision.SIXTEENTH,
+        Subdivision.TRIPLET,
+        Subdivision.QUINTUPLET,
+        Subdivision.SEPTUPLET,
+        Subdivision.THIRTY_SECOND,
+        Subdivision.NONUPLET,
+    )
+    val polyrhythms = listOf(
+        Triple("3 over 2", 3, 2.0),
+        Triple("4 over 3", 4, 3.0),
+        Triple("5 over 4", 5, 4.0),
+        Triple("7 over 5", 7, 5.0),
+        Triple("7 over 6", 7, 6.0),
+    )
+    val polymeters = listOf(
+        Triple("3/4", 3, 4),
+        Triple("5/4", 5, 4),
+        Triple("5/8", 5, 8),
+        Triple("7/8", 7, 8),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a layer") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "Layers share the main clock, count-in, gap training and tempo ramp.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FieldLabel("Subdivision")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    subdivisions.forEach { subdivision ->
+                        FilterChip(
+                            colors = thaaFilterChipColors(),
+                            selected = false,
+                            onClick = { onSubdivision(subdivision) },
+                            label = { Text(subdivision.shortLabel) },
+                        )
+                    }
+                }
+                FieldLabel("Polyrhythm")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    polyrhythms.forEach { (label, pulses, cycle) ->
+                        FilterChip(
+                            colors = thaaFilterChipColors(),
+                            selected = false,
+                            onClick = { onPolyrhythm(pulses, cycle) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                FieldLabel("Polymeter · layer cycle")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    polymeters.forEach { (label, beats, unit) ->
+                        FilterChip(
+                            colors = thaaFilterChipColors(),
+                            selected = false,
+                            onClick = { onPolymeter(beats, unit) },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                Text(
+                    text = "Polyrhythm uses a shared cycle; polymeter gives the layer its own bar length. " +
+                        "The main ${settings.meter.label} pulse stays the reference.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LayerEditorDialog(
+    layer: LayerSettings,
+    onDismiss: () -> Unit,
+    onEnabled: (Boolean) -> Unit,
+    onPulses: (Int) -> Unit,
+    onCycle: (Double) -> Unit,
+    onAccent: (Int) -> Unit,
+    onGain: (Float) -> Unit,
+    onOffset: (Double) -> Unit,
+    onSwing: (Double) -> Unit,
+    onSound: (SoundSet) -> Unit,
+    onPreview: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(layer.name) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = "${layer.gridLabel} pulses across ${formatCycle(layer.cycleBeats)} beats. " +
+                        "Tap a pulse to cycle accent, normal, ghost and mute.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ToggleRow(
+                    title = "Enabled",
+                    subtitle = "Silence this layer without losing its settings",
+                    checked = layer.enabled,
+                    onCheckedChange = onEnabled,
+                )
+                Stepper(
+                    label = "Pulses",
+                    valueLabel = "${layer.pulses}",
+                    supportingText = "Events across the layer cycle",
+                    onDecrease = { onPulses(layer.pulses - 1) },
+                    onIncrease = { onPulses(layer.pulses + 1) },
+                )
+                Stepper(
+                    label = "Cycle",
+                    valueLabel = "${formatCycle(layer.cycleBeats)} beats",
+                    supportingText = "Short cycles repeat inside a long bar",
+                    onDecrease = { onCycle(layer.cycleBeats - 0.5) },
+                    onIncrease = { onCycle(layer.cycleBeats + 0.5) },
+                )
+                FieldLabel("Pulse accents")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    layer.accentPattern.forEachIndexed { index, kind ->
+                        LayerAccentChip(
+                            index = index,
+                            kind = kind,
+                            onClick = { onAccent(index) },
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FieldLabel("Gain", modifier = Modifier.weight(1f))
+                    Text(
+                        text = "${(layer.gain * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                Slider(
+                    value = layer.gain,
+                    onValueChange = onGain,
+                    valueRange = 0f..1f,
+                    colors = thaaSliderColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FieldLabel("Offset", modifier = Modifier.weight(1f))
+                    Text(
+                        text = "${layer.offsetMs.roundToInt()} ms",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                Slider(
+                    value = layer.offsetMs.toFloat(),
+                    onValueChange = { onOffset(it.toDouble()) },
+                    valueRange = -50f..50f,
+                    colors = thaaSliderColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FieldLabel("Swing", modifier = Modifier.weight(1f))
+                    Text(
+                        text = swingLabel(layer.swingPercent),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Slider(
+                    value = layer.swingPercent.toFloat(),
+                    onValueChange = { onSwing(it.toDouble()) },
+                    valueRange = 50f..75f,
+                    enabled = layer.pulses % 2 == 0,
+                    colors = thaaSliderColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldLabel("Sound")
+                ChoiceChips(
+                    items = SoundSet.entries,
+                    selected = layer.soundSet,
+                    label = { it.displayName },
+                    onSelect = onSound,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = onPreview, modifier = Modifier.weight(1f)) {
+                        Text("Preview")
+                    }
+                    OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
+                        Text("Remove")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
+    )
+}
+
+@Composable
+private fun LayerAccentChip(
+    index: Int,
+    kind: com.baijum.thaalam.data.BeatKind,
+    onClick: () -> Unit,
+) {
+    val color = when (kind) {
+        com.baijum.thaalam.data.BeatKind.ACCENT -> MaterialTheme.colorScheme.primary
+        com.baijum.thaalam.data.BeatKind.NORMAL -> MaterialTheme.colorScheme.secondaryContainer
+        com.baijum.thaalam.data.BeatKind.GHOST -> MaterialTheme.colorScheme.surfaceVariant
+        com.baijum.thaalam.data.BeatKind.MUTE -> MaterialTheme.colorScheme.outlineVariant
+    }
+    val content = when (kind) {
+        com.baijum.thaalam.data.BeatKind.ACCENT -> MaterialTheme.colorScheme.onPrimary
+        com.baijum.thaalam.data.BeatKind.NORMAL -> MaterialTheme.colorScheme.onSecondaryContainer
+        com.baijum.thaalam.data.BeatKind.GHOST -> MaterialTheme.colorScheme.onSurfaceVariant
+        com.baijum.thaalam.data.BeatKind.MUTE -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        shape = CircleShape,
+        color = color,
+        modifier = Modifier
+            .size(36.dp)
+            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Layer pulse ${index + 1}"
+                stateDescription = kind.displayName
+            },
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = "${index + 1}",
+                style = MaterialTheme.typography.labelMedium,
+                color = content,
+            )
+        }
+    }
+}
+
+private fun formatCycle(value: Double): String =
+    if (value == value.toInt().toDouble()) {
+        value.toInt().toString()
+    } else {
+        ((value * 100.0).roundToInt() / 100.0).toString()
+    }
 
 @Composable
 private fun PracticeCard(

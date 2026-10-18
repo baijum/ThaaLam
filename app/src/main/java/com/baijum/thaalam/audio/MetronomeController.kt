@@ -10,6 +10,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
 import com.baijum.thaalam.data.BeatKind
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
@@ -19,6 +20,8 @@ import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
 import com.baijum.thaalam.data.UiPreferences
+import com.baijum.thaalam.domain.LayerFactory
+import com.baijum.thaalam.domain.LayerMutations
 import com.baijum.thaalam.domain.MetronomeStateLogic
 import com.baijum.thaalam.domain.TalaApplication
 import com.baijum.thaalam.domain.TalaLibrary
@@ -241,6 +244,82 @@ class MetronomeController private constructor(
 
     fun setVolume(volume: Float) {
         updateSettings { it.copy(volume = volume.coerceIn(0f, 1f)) }
+    }
+
+    // ---------------------------------------------------------------------
+    // Layers
+    // ---------------------------------------------------------------------
+
+    fun addSubdivisionLayer(subdivision: Subdivision) {
+        addLayer(LayerFactory.subdivision(_settings.value, subdivision))
+    }
+
+    fun addPolyrhythmLayer(pulses: Int, cycleBeats: Double) {
+        addLayer(LayerFactory.polyrhythm(_settings.value, pulses, cycleBeats))
+    }
+
+    fun addPolymeterLayer(beats: Int, beatUnit: Int) {
+        addLayer(LayerFactory.polymeter(_settings.value, beats, beatUnit))
+    }
+
+    fun addLayer(layer: LayerSettings) {
+        if (_settings.value.layers.size >= LayerSettings.MAX_LAYERS) return
+        updateSettings { it.copy(layers = it.layers + layer) }
+    }
+
+    fun removeLayer(id: String) {
+        updateSettings { it.copy(layers = it.layers.filterNot { layer -> layer.id == id }) }
+    }
+
+    fun clearLayers() {
+        updateSettings { it.copy(layers = emptyList()) }
+    }
+
+    fun setLayerEnabled(id: String, enabled: Boolean) {
+        mutateLayer(id) { LayerMutations.setEnabled(it, enabled) }
+    }
+
+    fun setLayerGain(id: String, gain: Float) {
+        mutateLayer(id) { LayerMutations.setGain(it, gain.toDouble()) }
+    }
+
+    fun setLayerOffset(id: String, offsetMs: Double) {
+        mutateLayer(id) { LayerMutations.setOffset(it, offsetMs) }
+    }
+
+    fun setLayerSound(id: String, soundSet: SoundSet) {
+        mutateLayer(id) { LayerMutations.setSoundSet(it, soundSet) }
+    }
+
+    fun setLayerPulses(id: String, pulses: Int) {
+        mutateLayer(id) { LayerMutations.setPulses(it, pulses) }
+    }
+
+    fun setLayerCycleBeats(id: String, cycleBeats: Double) {
+        mutateLayer(id) { LayerMutations.setCycleBeats(it, cycleBeats) }
+    }
+
+    fun setLayerSwing(id: String, percent: Double) {
+        mutateLayer(id) { LayerMutations.setSwing(it, percent) }
+    }
+
+    fun cycleLayerAccent(id: String, index: Int) {
+        mutateLayer(id) { LayerMutations.cycleAccent(it, index) }
+    }
+
+    fun previewLayer(id: String) {
+        val layer = _settings.value.layers.firstOrNull { it.id == id } ?: return
+        engine.preview(_settings.value.copy(soundSet = layer.soundSet))
+    }
+
+    private fun mutateLayer(id: String, transform: (LayerSettings) -> LayerSettings) {
+        updateSettings { current ->
+            val index = current.layers.indexOfFirst { it.id == id }
+            if (index < 0) return@updateSettings current
+            val layers = current.layers.toMutableList()
+            layers[index] = transform(layers[index])
+            current.copy(layers = layers)
+        }
     }
 
     fun setCountInBars(bars: Int) {

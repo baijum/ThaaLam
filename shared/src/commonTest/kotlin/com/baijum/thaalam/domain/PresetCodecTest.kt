@@ -1,6 +1,7 @@
 package com.baijum.thaalam.domain
 
 import com.baijum.thaalam.data.BeatKind
+import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
 import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
@@ -90,5 +91,47 @@ class PresetCodecTest {
         assertTrue(preset.summary.contains("7/8"))
         assertTrue(preset.summary.contains("1/8T"))
         assertTrue(preset.summary.contains("swing"))
+        val layered = preset.copy(
+            settings = sample.copy(
+                layers = listOf(
+                    LayerSettings(
+                        id = "layer",
+                        pulses = 5,
+                        cycleBeats = 4.0,
+                        accentPattern = LayerSettings.defaultAccentPattern(5),
+                    ),
+                ),
+            ),
+        )
+        assertTrue(layered.summary.contains("1 layer"), layered.summary)
+    }
+
+    @Test
+    fun `layers round trip through the shared json codec`() {
+        val layered = sample.copy(
+            layers = listOf(
+                LayerSettings(
+                    id = "poly",
+                    name = "3 over 2",
+                    pulses = 3,
+                    cycleBeats = 2.0,
+                    accentPattern = listOf(BeatKind.ACCENT, BeatKind.NORMAL, BeatKind.GHOST),
+                    soundSet = SoundSet.BELL,
+                    gain = 0.5f,
+                    offsetMs = 12.0,
+                    swingPercent = 60.0,
+                ).normalized(),
+            ),
+        )
+        val decoded = PresetCodec.decodeSettings(PresetCodec.encodeSettings(layered))
+        assertEquals(layered.layers, decoded.layers)
+    }
+
+    @Test
+    fun `settings written before layers still decode`() {
+        val raw = """{"bpm":120.0,"meter":{"beatsPerBar":4,"beatUnit":4,"grouping":[4]},"accentPattern":["ACCENT","NORMAL","NORMAL","NORMAL"]}"""
+        val decoded = PresetCodec.decodeSettings(raw)
+        assertEquals(120.0, decoded.bpm)
+        assertTrue(decoded.layers.isEmpty())
     }
 }

@@ -45,6 +45,28 @@ Hindustani tala library.
   muted bar.
 - **Group accents** restores the accents implied by the additive grouping.
 
+### Layers
+
+- **Up to three additional voices** over the primary pulse, mixed at exact
+  sample positions on the same clock.
+- **Subdivision mixer**: add an eighth, sixteenth, triplet, quintuplet,
+  septuplet, 1/32 or nonuplet layer without changing the main subdivision.
+- **Polyrhythm**: 3 over 2, 4 over 3, 5 over 4, 7 over 5, 7 over 6, or a custom
+  pulses-per-cycle value.
+- **Polymeter**: give a layer its own cycle length (for example 3/4, 5/4, 5/8 or
+  7/8) against the main bar; the cycles realign at their least common multiple.
+- **Per-layer control**: enable, gain, sound set, ±50 ms offset, swing, and a
+  four-state accent pattern for every pulse.
+- Layers follow count-in, gap training, stochastic muting and tempo changes;
+  editing an accent never restarts the primary bar.
+
+<p align="center">
+  <img src="docs/screenshots/ios-layers.png" width="24%" alt="iOS layers">
+  <img src="docs/screenshots/ios-layer-editor.png" width="24%" alt="iOS layer editor">
+  <img src="docs/screenshots/android-layers.png" width="24%" alt="Android layers">
+  <img src="docs/screenshots/android-layer-editor.png" width="24%" alt="Android layer editor">
+</p>
+
 ### Sound and feel
 
 - **Procedural click synthesis** on the audio thread: five timbres (Click,
@@ -155,10 +177,13 @@ ThaaLam/
 │   └── src/test/                     (Android host tests can be added here)
 ├── shared/                           Kotlin Multiplatform domain
 │   └── src/commonMain/kotlin/com/baijum/thaalam/
-│       ├── data/                     Meter, Subdivision, BeatKind, Tala,
-│       │                             MetronomeSettings, MetronomePreset
+│       ├── data/                     Meter, Subdivision, BeatKind, LayerSettings,
+│       │                             Tala, MetronomeSettings, MetronomePreset
 │       └── domain/
-│           ├── RhythmPattern.kt      one-bar click grid (swing, tuplets, accents)
+│           ├── RhythmPattern.kt      one-bar primary click grid
+│           ├── VoicePattern.kt       compiled voice grid for the engines
+│           ├── LayerCompiler.kt      subdivision / polyrhythm / polymeter compiler
+│           ├── TimingSimulator.kt    deterministic frame-level scheduling tests
 │           ├── TempoMath.kt          frame math, markings, ramping
 │           ├── PracticeLogic.kt      gap / mute / ramp decisions + LCG
 │           ├── TalaLibrary.kt        35 Suladi + Chapu + Hindustani catalogue
@@ -245,11 +270,13 @@ build the `iosArm64` slice.
 
 ```
 ┌────────────────────────────── Shared Kotlin ──────────────────────────────┐
-│ MetronomeSettings  Meter  Subdivision  BeatKind  Tala  MetronomePreset    │
+│ MetronomeSettings  Meter  Subdivision  BeatKind  LayerSettings  Tala       │
 │        │                                                                  │
-│        ├── RhythmPattern.build(settings) → immutable steps + gaps         │
+│        ├── RhythmPattern.build(settings) → primary steps + gaps           │
+│        ├── LayerCompiler → subdivision / polyrhythm / polymeter voices    │
 │        ├── TalaLibrary / TalaApplication → meter + grouping + accents     │
 │        ├── PracticeLogic → gap / stochastic mute / ramp decisions         │
+│        ├── TimingSimulator → deterministic frame-level test contract      │
 │        ├── TempoMath → BPM ↔ seconds ↔ sample frames                      │
 │        ├── TapTempo, PresetCodec, MetronomeStateLogic                     │
 │        └── SwiftInterop: SettingsMutations / PatternFactory / factories   │
@@ -258,7 +285,7 @@ build the `iosArm64` slice.
 ┌───────────────▼────────────────┐              ┌───────────▼───────────────┐
 │ Android: MetronomeAudioEngine  │              │ iOS: MetronomeAudioEngine │
 │ AudioTrack 48 kHz, 256 frames  │              │ AVAudioSourceNode render  │
-│ frame position + next tick     │              │ frame position + next tick│
+│ frame position + voice cursors │              │ frame position + cursors  │
 │ ClickSynth voices              │              │ ClickSynth voices         │
 │ controller → StateFlow → UI    │              │ controller → @Published   │
 └────────────────────────────────┘              └───────────────────────────┘
@@ -267,17 +294,20 @@ build the `iosArm64` slice.
 ### Why the timing is stable
 
 Both engines maintain an absolute frame position and a `Double` frame position
-for the next click. A click's interval is derived from the shared one-bar grid:
+for each voice's next click. A click's interval is derived from the shared
+compiled grid:
 
 ```text
 framesPerBeat = 60 / BPM * sampleRate
 nextTickFrame += gapBeats * framesPerBeat
 ```
 
-Because the position is a `Double`, fractional BPM values, swing and tuplets
-never accumulate integer rounding drift. Clicks are mixed at their exact sample
-offset inside the buffer, and a click voice can carry its tail across buffer
-boundaries. Nothing schedules audio from a UI timer.
+Because the position is a `Double`, fractional BPM values, swing, tuplets,
+polyrhythm and polymeter never accumulate integer rounding drift. Voices are
+ordered by their next frame, so a layer tick before a bar boundary still belongs
+to the old bar. Clicks are mixed at their exact sample offset inside the buffer,
+and a click voice can carry its tail across buffer boundaries. Nothing schedules
+audio from a UI timer.
 
 - **Android** writes on a dedicated `THREAD_PRIORITY_URGENT_AUDIO` thread to an
   `AudioTrack` created with `PERFORMANCE_MODE_LOW_LATENCY`, 48 kHz mono float.
@@ -307,8 +337,8 @@ canonical lengths, khali placement and theka lengths.
 ## Testing
 
 ```bash
-./gradlew :shared:jvmTest      # 73 shared tests: meters, patterns, talas,
-                               # practice logic, tap tempo, presets, interop
+./gradlew :shared:jvmTest      # 96 shared tests: meters, layers, patterns,
+                               # talas, practice logic, tap tempo, presets
 ./gradlew :app:lintDebug       # Android lint
 ./gradlew :app:assembleDebug
 ```
@@ -316,9 +346,11 @@ canonical lengths, khali placement and theka lengths.
 Manual verification performed during development:
 
 - Android emulator (API 36): clean launch, metronome start/stop, count-in,
-  tala selection and playback, foreground service while backgrounded, dark mode.
+  tala selection and playback, adding/toggling a 5-over-4 layer while playing,
+  foreground service while backgrounded, dark mode.
 - iOS simulator (iPhone 17 Pro): clean launch, metronome playback, tala detail,
-  tala playback, light/dark mode, audio session start without errors.
+  tala playback, layer picker/editor, 5-over-4 layer while playing, light/dark
+  mode, audio session start without errors.
 
 iOS audio is verified by scheduling and rendering; a hardware loopback test is
 recommended before shipping for measuring output latency on real devices.
@@ -335,7 +367,7 @@ recommended before shipping for measuring output latency on real devices.
 | Swing, ghost notes, tuplets up to nonuplets, additive meters | ✅ implemented |
 | Carnatic Suladi Sapta Talas, Chapu, nadai, Hindustani theka | ✅ implemented |
 | Presets, haptics, flash, visual latency calibration | ✅ implemented |
-| Subdivision mixer, polyrhythm / polymeter layers | ◻ planned for v0.2 |
+| Subdivision mixer, polyrhythm / polymeter layers | ✅ core implemented (v0.2) |
 | Kalam, kalai, eduppu, anga timbres, Ashtottara talas | ◻ planned for v0.3 |
 | Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ planned for v0.4 |
 | Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ planned for v0.5 |

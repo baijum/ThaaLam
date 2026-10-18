@@ -152,4 +152,55 @@ class SwiftInteropTest {
         assertEquals(3, byTicks.subdivision.ticksPerBeat)
         assertEquals(16, byTicks.meter.beatsPerBar)
     }
+
+    @Test
+    fun `layer factory maps subdivisions and polyrhythms`() {
+        val base = MetronomeSettings()
+        val subdivision = LayerFactory.subdivision(base, Subdivision.SIXTEENTH)
+        assertEquals(16, subdivision.pulses)
+        assertEquals(4.0, subdivision.cycleBeats)
+        assertEquals(16, subdivision.accentPattern.size)
+
+        val poly = LayerFactory.polyrhythm(base, pulses = 5, cycleBeats = 4.0)
+        assertEquals(5, poly.pulses)
+        assertEquals(4.0, poly.cycleBeats)
+
+        val polymeter = LayerFactory.polymeter(base, beats = 5, beatUnit = 8)
+        assertEquals(5, polymeter.pulses)
+        assertEquals(2.5, polymeter.cycleBeats)
+    }
+
+    @Test
+    fun `settings mutations add edit and remove a layer`() {
+        val base = SettingsMutations.defaults()
+        val layer = LayerFactory.polyrhythm(base, pulses = 3, cycleBeats = 2.0)
+        var settings = SettingsMutations.addLayer(base, layer)
+        assertEquals(1, settings.layers.size)
+
+        settings = SettingsMutations.setLayerGain(settings, layer.id, 0.25)
+        assertEquals(0.25f, settings.layers.single().gain)
+
+        settings = SettingsMutations.cycleLayerAccent(settings, layer.id, 0)
+        assertEquals(BeatKind.NORMAL, settings.layers.single().accentPattern[0])
+
+        settings = SettingsMutations.removeLayer(settings, layer.id)
+        assertTrue(settings.layers.isEmpty())
+    }
+
+    @Test
+    fun `pattern factory exposes compiled layers and a count-in voice`() {
+        val base = MetronomeSettings()
+        val layered = base.copy(
+            layers = listOf(
+                LayerFactory.subdivision(base, Subdivision.EIGHTH),
+            ),
+        )
+        assertEquals(1, PatternFactory.voices(base).size)
+        assertEquals(2, PatternFactory.voices(layered).size)
+        assertEquals(4, PatternFactory.countInVoice(layered).pulseCount)
+        assertNotEquals(
+            PatternFactory.patternKey(base),
+            PatternFactory.patternKey(layered),
+        )
+    }
 }
