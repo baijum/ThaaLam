@@ -267,7 +267,11 @@ ThaaLam/
 ├── docs/
 │   ├── screenshots/
 │   ├── architecture.md               engine and data-flow deep dive
+│   ├── app-store-submission.md       listing, screenshots and upload guide
+│   ├── app-store/                    flattened App Store screenshots
 │   ├── microphone-spike.md           gated microphone decision record
+│   ├── privacy-policy.md             GitHub Pages privacy policy
+│   ├── support.md                    GitHub Pages support page
 │   └── roadmap.md                    release plan
 ├── CHANGELOG.md
 └── references/                       market and product research reports
@@ -329,6 +333,17 @@ framework is always in sync with the app. The generated
 
 For a device build, select your team in Signing & Capabilities and let Xcode
 build the `iosArm64` slice.
+
+For an App Store archive and IPA, run:
+
+```bash
+./scripts/archive-ios.sh
+```
+
+The archive is written to `build/ThaaLam.xcarchive` and the signed IPA to
+`build/export/ThaaLam.ipa`. The App Store Connect setup, listing copy,
+screenshots and review notes are in
+[docs/app-store-submission.md](docs/app-store-submission.md).
 
 ---
 

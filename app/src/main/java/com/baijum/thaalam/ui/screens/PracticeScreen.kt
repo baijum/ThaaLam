@@ -226,7 +226,7 @@ private fun WeekCard(stats: PracticeStats) {
         subtitle = "Minutes by local day; overnight sessions are split at midnight",
         trailing = {
             Text(
-                text = "${formatMinutes(stats.weekMinutes)} / ${stats.weeklyGoalMinutes} min",
+                text = "${formatMinutes(stats.weekMinutes)} / ${formatMinutes(stats.weeklyGoalMinutes.toDouble())}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

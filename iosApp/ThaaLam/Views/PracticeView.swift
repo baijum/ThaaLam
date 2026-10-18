@@ -99,7 +99,7 @@ struct PracticeView: View {
             title: "Last seven days",
             subtitle: "Minutes by local day; overnight sessions are split at midnight",
             trailing: {
-                Text("\(formatMinutes(stats.weekMinutes)) / \(stats.weeklyGoalMinutes) min")
+                Text("\(formatMinutes(stats.weekMinutes)) / \(formatMinutes(Double(stats.weeklyGoalMinutes)))")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(ThaaLamTheme.textSecondary)
             }

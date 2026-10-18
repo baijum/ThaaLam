@@ -49,7 +49,7 @@ struct MetronomeView: View {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("-scrollLayers") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            withAnimation { proxy.scrollTo("layers", anchor: .top) }
+                            withAnimation { proxy.scrollTo("layers", anchor: .center) }
                         }
                     }
                     if ProcessInfo.processInfo.arguments.contains("-layerEditor"),
