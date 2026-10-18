@@ -3,6 +3,7 @@ package com.baijum.thaalam.domain
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.Subdivision
+import com.baijum.thaalam.data.TalaPlayback
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -198,6 +199,61 @@ class SwiftInteropTest {
         settings = SettingsMutations.cycleLayerStepOffset(settings, layer.id, 0)
         assertEquals(10.0, LayerMutations.stepOffsetAt(settings.layers.single(), 0))
         assertEquals(5, LayerMutations.stepOffsetCount(settings.layers.single()))
+    }
+
+    @Test
+    fun `tala factory applies kalam kalai and eduppu`() {
+        val tala = TalaLibrary.find("carnatic.chapu.misra")!!
+        val base = MetronomeSettings(bpm = 72.0)
+        val settings = TalaFactory.applyTala(
+            tala = tala,
+            base = base,
+            nadaiTicks = 1,
+            baseBpm = 72.0,
+            kalam = 2,
+            kalai = 2,
+            eduppuOffsetAksharas = 0.5,
+        )
+        assertEquals(72.0, settings.bpm)
+        assertEquals(144.0, settings.effectiveBpm)
+        assertEquals(2, settings.talaPlayback.kalam)
+        assertEquals(2, settings.talaPlayback.kalai)
+        assertEquals(0.5, settings.talaPlayback.eduppuOffsetAksharas)
+        assertEquals(14, PatternFactory.voices(settings).first().stepCount)
+        assertEquals("½ after sam", TalaFactory.eduppuLabel(0.5))
+        assertEquals("2x", TalaFactory.kalamLabel(2))
+        assertEquals("2-kalai", TalaFactory.kalaiLabel(2))
+    }
+
+    @Test
+    fun `settings mutations make tala playback changes Swift friendly`() {
+        val tala = TalaLibrary.find("hindustani.teental")!!
+        val applied = TalaApplication.applyTala(tala, MetronomeSettings(), nadaiTicks = 1)
+        var settings = SettingsMutations.setKalam(applied, 4)
+        settings = SettingsMutations.setKalai(settings, 2)
+        settings = SettingsMutations.setEduppu(settings, -0.5)
+        assertEquals(4, settings.talaPlayback.kalam)
+        assertEquals(2, settings.talaPlayback.kalai)
+        assertEquals(-0.5, settings.talaPlayback.eduppuOffsetAksharas)
+        assertEquals(4 * applied.bpm, settings.effectiveBpm)
+
+        val replaced = SettingsMutations.setTalaPlayback(settings, 2, 1, 1.0)
+        assertEquals(2, replaced.talaPlayback.kalam)
+        assertEquals(1, replaced.talaPlayback.kalai)
+        assertEquals(1.0, replaced.talaPlayback.eduppuOffsetAksharas)
+    }
+
+    @Test
+    fun `tala factory drill names summarise the configuration`() {
+        val tala = TalaLibrary.find("carnatic.chapu.misra")!!
+        val name = TalaFactory.drillName(
+            tala = tala,
+            playback = TalaPlayback(kalam = 2, kalai = 2, eduppuOffsetAksharas = -0.5),
+        )
+        assertTrue(name.contains("Misra Chapu"))
+        assertTrue(name.contains("2x"))
+        assertTrue(name.contains("2-kalai"))
+        assertTrue(name.contains("½ before sam"))
     }
 
     @Test

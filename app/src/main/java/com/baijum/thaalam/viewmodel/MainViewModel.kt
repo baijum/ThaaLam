@@ -12,6 +12,7 @@ import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.data.TalaPlayback
 import com.baijum.thaalam.data.UiPreferences
 import com.baijum.thaalam.domain.TalaLibrary
 import com.baijum.thaalam.domain.TapTempoResult
@@ -122,11 +123,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun previewLayer(id: String) = controller.previewLayer(id)
 
     // Talas
-    fun applyTala(tala: Tala, nadai: Subdivision, autoStart: Boolean) {
-        controller.applyTala(tala, nadai, autoStart)
+    fun applyTala(
+        tala: Tala,
+        nadai: Subdivision,
+        autoStart: Boolean,
+        playback: TalaPlayback = TalaPlayback(),
+    ) {
+        controller.applyTala(tala, nadai, autoStart, playback)
         val action = if (autoStart) "Playing" else "Loaded"
         _messages.tryEmit("$action ${tala.name}")
     }
+
+    fun setKalam(kalam: Int) = controller.setKalam(kalam)
+    fun setKalai(kalai: Int) = controller.setKalai(kalai)
+    fun setEduppu(eduppuOffsetAksharas: Double) =
+        controller.setEduppu(eduppuOffsetAksharas)
+    fun setTalaPlayback(playback: TalaPlayback) = controller.setTalaPlayback(playback)
 
     fun clearTala() = controller.clearTala()
 

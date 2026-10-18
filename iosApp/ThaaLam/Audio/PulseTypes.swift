@@ -38,6 +38,87 @@ enum PulseKind: Int, CaseIterable {
     var isAudible: Bool { self != .mute }
 }
 
+/// Local mirror of the shared tala gesture so the render thread never touches
+/// the Kotlin runtime.
+enum PulseGesture: Int, CaseIterable {
+    case none
+    case clap
+    case finger
+    case wave
+    case tali
+    case khali
+
+    init(_ gesture: AngaGesture) {
+        switch gesture {
+        case .clap: self = .clap
+        case .finger: self = .finger
+        case .wave: self = .wave
+        case .tali: self = .tali
+        case .khali: self = .khali
+        default: self = .none
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .none: return "None"
+        case .clap: return "Clap"
+        case .finger: return "Finger count"
+        case .wave: return "Wave"
+        case .tali: return "Tali"
+        case .khali: return "Khali"
+        }
+    }
+
+    /// Pitch multiplier applied to the chosen click timbre.
+    var pitch: Double {
+        switch self {
+        case .none: return 1.0
+        case .clap: return 1.0
+        case .finger: return 1.22
+        case .wave: return 0.68
+        case .tali: return 0.92
+        case .khali: return 0.78
+        }
+    }
+
+    /// Decay multiplier applied to the chosen click timbre.
+    var decay: Double {
+        switch self {
+        case .none: return 1.0
+        case .clap: return 0.95
+        case .finger: return 0.65
+        case .wave: return 1.30
+        case .tali: return 1.05
+        case .khali: return 1.10
+        }
+    }
+
+    /// Noise added to the chosen click timbre.
+    var noise: Double {
+        switch self {
+        case .none: return 0
+        case .clap: return 0.10
+        case .finger: return -0.04
+        case .wave: return 0.18
+        case .tali: return 0.08
+        case .khali: return 0.04
+        }
+    }
+
+    /// Velocity multiplier applied to the chosen click timbre.
+    var gain: Float {
+        switch self {
+        case .none: return 1.0
+        case .clap: return 1.0
+        case .finger: return 0.82
+        case .wave: return 0.78
+        case .tali: return 0.96
+        case .khali: return 0.64
+        }
+    }
+}
+
 /// Local mirror of the shared sound set so the render thread never touches the
 /// Kotlin runtime.
 enum ClickSound: String, CaseIterable, Identifiable {

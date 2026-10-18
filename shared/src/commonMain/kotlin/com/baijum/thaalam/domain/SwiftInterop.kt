@@ -7,6 +7,8 @@ import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
+import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.data.TalaPlayback
 import kotlin.math.roundToInt
 
 /**
@@ -189,6 +191,35 @@ object SettingsMutations {
         layers[index] = transform(layers[index])
         return settings.copy(layers = layers).normalized()
     }
+
+    // ---------------------------------------------------------------------
+    // Tala playback (kalam, kalai, eduppu)
+    // ---------------------------------------------------------------------
+
+    fun setTalaPlayback(
+        settings: MetronomeSettings,
+        kalam: Int,
+        kalai: Int,
+        eduppuOffsetAksharas: Double,
+    ): MetronomeSettings = TalaApplication.withPlayback(
+        settings,
+        TalaPlayback(
+            kalam = kalam,
+            kalai = kalai,
+            eduppuOffsetAksharas = eduppuOffsetAksharas,
+        ),
+    )
+
+    fun setKalam(settings: MetronomeSettings, kalam: Int): MetronomeSettings =
+        TalaApplication.withKalam(settings, kalam)
+
+    fun setKalai(settings: MetronomeSettings, kalai: Int): MetronomeSettings =
+        TalaApplication.withKalai(settings, kalai)
+
+    fun setEduppu(
+        settings: MetronomeSettings,
+        eduppuOffsetAksharas: Double,
+    ): MetronomeSettings = TalaApplication.withEduppu(settings, eduppuOffsetAksharas)
 
     fun reset(): MetronomeSettings = MetronomeSettings().normalized()
 
@@ -413,4 +444,51 @@ object PresetFactory {
 /** Tap-tempo factory so Swift does not need every Kotlin default argument. */
 object TapTempoFactory {
     fun create(): TapTempo = TapTempo()
+}
+
+/** Tala metadata and playback labels shared by the Android and iOS UI. */
+object TalaFactory {
+    fun applyTala(
+        tala: Tala,
+        base: MetronomeSettings,
+        nadaiTicks: Int,
+        baseBpm: Double,
+        kalam: Int,
+        kalai: Int,
+        eduppuOffsetAksharas: Double,
+    ): MetronomeSettings = TalaApplication.applyTalaWithPlayback(
+        tala = tala,
+        base = base,
+        nadaiTicks = nadaiTicks,
+        baseBpm = baseBpm,
+        kalam = kalam,
+        kalai = kalai,
+        eduppuOffsetAksharas = eduppuOffsetAksharas,
+    )
+
+    fun clear(settings: MetronomeSettings): MetronomeSettings =
+        TalaApplication.clear(settings)
+
+    fun playback(settings: MetronomeSettings): TalaPlayback = settings.talaPlayback
+
+    fun kalamLabel(kalam: Int): String = "${kalam}x"
+
+    fun kalaiLabel(kalai: Int): String = "$kalai-kalai"
+
+    fun eduppuLabel(eduppuOffsetAksharas: Double): String =
+        TalaPlayback.eduppuLabel(eduppuOffsetAksharas)
+
+    fun eduppuOptionsCsv(): String =
+        TalaPlayback.EDUPPU_OPTIONS.joinToString(",")
+
+    fun kalamOptionsCsv(): String = TalaPlayback.KALAM_OPTIONS.joinToString(",")
+
+    fun kalaiOptionsCsv(): String = TalaPlayback.KALAI_OPTIONS.joinToString(",")
+
+    /** Default tala playback for a fresh selection. */
+    fun defaultPlayback(): TalaPlayback = TalaPlayback()
+
+    /** Preset name for the current tala configuration, e.g. "Misra Chapu · 2x · 1-kalai". */
+    fun drillName(tala: Tala, playback: TalaPlayback): String =
+        "${tala.name} · ${playback.summary}"
 }

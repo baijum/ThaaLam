@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.os.Process
 import android.util.Log
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.MetronomeSettings
@@ -27,6 +28,7 @@ data class EngineTick(
     val isCountIn: Boolean,
     val bpm: Double,
     val countInBarsRemaining: Int,
+    val gesture: AngaGesture,
 )
 
 private data class EngineConfig(
@@ -34,6 +36,8 @@ private data class EngineConfig(
     val primary: VoicePattern,
     val countIn: VoicePattern,
     val layers: List<VoicePattern>,
+    /** Performance tempo: base BPM scaled by kalam. */
+    val bpm: Double,
 )
 
 private class VoiceRuntime(
@@ -167,18 +171,22 @@ class MetronomeAudioEngine {
 
             var framePosition = 0L
             var barIndex = 1
-            var currentBpm = config?.settings?.bpm ?: 100.0
+            var currentBpm = config?.bpm ?: 100.0
             var lastBaseBpm = currentBpm
             var lastConfig = config ?: return
             var pendingBarAdvance = false
+            var pendingBoundaryFrame = 0.0
+            var pendingNextBar = 1
+            var pendingNextBpm = currentBpm
+            var pendingNextIsCountIn = false
             val runtimes = createRuntimes(lastConfig)
 
             while (running) {
                 val cfg = config ?: break
                 if (cfg !== lastConfig) {
-                    if (cfg.settings.bpm != lastBaseBpm) {
-                        currentBpm = cfg.settings.bpm
-                        lastBaseBpm = cfg.settings.bpm
+                    if (cfg.bpm != lastBaseBpm) {
+                        currentBpm = cfg.bpm
+                        lastBaseBpm = cfg.bpm
                     }
                     applyConfig(
                         cfg = cfg,
@@ -186,8 +194,28 @@ class MetronomeAudioEngine {
                         runtimes = runtimes,
                         framePosition = framePosition,
                         barIndex = barIndex,
+                        currentBpm = currentBpm,
                     ).let { primaryReset ->
                         if (primaryReset) pendingBarAdvance = false
+                    }
+                    if (pendingBarAdvance) {
+                        // Re-time the next bar with the new snapshot. This keeps
+                        // a live kalam/BPM change exact even when it lands in the
+                        // short window between the last step and the bar line.
+                        val nextIsCountIn = pendingNextBar <= cfg.settings.countInBars
+                        val nextMusicalBar = (pendingNextBar - cfg.settings.countInBars)
+                            .coerceAtLeast(1)
+                        val nextBpm = if (nextIsCountIn) {
+                            cfg.bpm
+                        } else {
+                            PracticeLogic.bpmForBar(cfg.settings, nextMusicalBar, false)
+                        }
+                        val nextPattern = if (nextIsCountIn) cfg.countIn else cfg.primary
+                        pendingNextBpm = nextBpm
+                        pendingNextIsCountIn = nextIsCountIn
+                        runtimes[0]?.nextTickFrame = pendingBoundaryFrame +
+                            nextPattern.leadInBeats *
+                            TempoMath.framesPerBeat(nextBpm, SAMPLE_RATE)
                     }
                     lastConfig = cfg
                 }
@@ -213,15 +241,11 @@ class MetronomeAudioEngine {
 
                     if (pendingBarAdvance && chosen.isPrimary) {
                         pendingBarAdvance = false
-                        barIndex++
-                        val nextIsCountIn = barIndex <= cfg.settings.countInBars
-                        val nextMusicalBar = (barIndex - cfg.settings.countInBars).coerceAtLeast(1)
-                        currentBpm = if (nextIsCountIn) {
-                            cfg.settings.bpm
-                        } else {
-                            PracticeLogic.bpmForBar(cfg.settings, nextMusicalBar, false)
-                        }
-                        val nextPattern = if (nextIsCountIn) cfg.countIn else cfg.primary
+                        barIndex = pendingNextBar
+                        currentBpm = pendingNextBpm
+                        // Resolve the pattern from the *current* snapshot so an
+                        // accent or sound edit in the wrap window is not lost.
+                        val nextPattern = if (pendingNextIsCountIn) cfg.countIn else cfg.primary
                         chosen.pattern = nextPattern
                         chosen.gridKey = nextPattern.gridKey
                         chosen.stepIndex = 0
@@ -262,6 +286,7 @@ class MetronomeAudioEngine {
                             isSubdivision = !step.isMainBeat,
                             volume = cfg.settings.volume * chosen.pattern.gain,
                             startFrame = offset,
+                            gesture = step.gesture,
                         )
                     }
                     if (chosen.isPrimary) {
@@ -277,6 +302,7 @@ class MetronomeAudioEngine {
                                 bpm = currentBpm,
                                 countInBarsRemaining = (cfg.settings.countInBars - barIndex + 1)
                                     .coerceAtLeast(0),
+                                gesture = step.gesture,
                             ),
                         )
                     }
@@ -289,8 +315,28 @@ class MetronomeAudioEngine {
                         if (chosen.isPrimary) {
                             // The bar advances when the next primary tick is due,
                             // not now: a layer tick in between still belongs to
-                            // the old bar (count-in/gap boundaries).
+                            // the old bar (count-in/gap boundaries). The next
+                            // pattern's own lead-in is applied here because an
+                            // eduppu can give the count-in and musical bar
+                            // different first-click offsets.
                             pendingBarAdvance = true
+                            pendingBoundaryFrame = chosenFrame +
+                                (chosen.pattern.cycleBeats - step.offsetBeats) *
+                                TempoMath.framesPerBeat(currentBpm, SAMPLE_RATE)
+                            pendingNextBar = barIndex + 1
+                            val nextIsCountIn = pendingNextBar <= cfg.settings.countInBars
+                            val nextMusicalBar = (pendingNextBar - cfg.settings.countInBars)
+                                .coerceAtLeast(1)
+                            pendingNextBpm = if (nextIsCountIn) {
+                                cfg.bpm
+                            } else {
+                                PracticeLogic.bpmForBar(cfg.settings, nextMusicalBar, false)
+                            }
+                            val nextPattern = if (nextIsCountIn) cfg.countIn else cfg.primary
+                            pendingNextIsCountIn = nextIsCountIn
+                            chosen.nextTickFrame = pendingBoundaryFrame +
+                                nextPattern.leadInBeats *
+                                TempoMath.framesPerBeat(pendingNextBpm, SAMPLE_RATE)
                         }
                     }
                 }
@@ -333,7 +379,10 @@ class MetronomeAudioEngine {
             pattern = primaryPattern,
             gridKey = primaryPattern.gridKey,
             isPrimary = true,
-        )
+        ).also {
+            it.nextTickFrame = primaryPattern.leadInBeats *
+                TempoMath.framesPerBeat(cfg.bpm, SAMPLE_RATE)
+        }
         cfg.layers.take(LayerSettings.MAX_LAYERS).forEachIndexed { index, layer ->
             runtimes[index + 1] = VoiceRuntime(
                 pattern = layer,
@@ -350,6 +399,7 @@ class MetronomeAudioEngine {
         runtimes: Array<VoiceRuntime?>,
         framePosition: Long,
         barIndex: Int,
+        currentBpm: Double,
     ): Boolean {
         val currentPrimary = if (barIndex <= cfg.settings.countInBars) cfg.countIn else cfg.primary
         val primary = runtimes[0] ?: return false
@@ -357,7 +407,8 @@ class MetronomeAudioEngine {
         val countInChanged = cfg.settings.countInBars != previous.settings.countInBars
         if (primary.gridKey != currentPrimary.gridKey || countInChanged) {
             primary.stepIndex = 0
-            primary.nextTickFrame = framePosition.toDouble()
+            primary.nextTickFrame = framePosition.toDouble() +
+                currentPrimary.leadInBeats * TempoMath.framesPerBeat(currentBpm, SAMPLE_RATE)
             primaryReset = true
         }
         primary.pattern = currentPrimary
@@ -413,6 +464,7 @@ class MetronomeAudioEngine {
             primary = voices.first(),
             countIn = LayerCompiler.compileCountIn(normalized),
             layers = voices.drop(1),
+            bpm = normalized.effectiveBpm,
         )
     }
 

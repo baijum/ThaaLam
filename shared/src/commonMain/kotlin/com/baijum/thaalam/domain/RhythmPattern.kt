@@ -61,7 +61,10 @@ data class RhythmPattern(
         /** Builds the click grid for a settings snapshot. */
         fun build(settings: MetronomeSettings): RhythmPattern {
             val meter = settings.meter.normalized()
-            val ticks = settings.subdivision.ticksPerBeat.coerceIn(1, Subdivision.maxTicks)
+            // Kalai multiplies the nadai/subdivision: 2-kalai clicks twice per
+            // akshara even when the user picked a plain quarter pulse.
+            val ticks = settings.effectiveTicksPerBeat
+                .coerceIn(1, MetronomeSettings.MAX_EFFECTIVE_TICKS)
             val pattern = MetronomeStateLogic.normalizeAccentPattern(
                 beats = meter.beatsPerBar,
                 pattern = settings.accentPattern,

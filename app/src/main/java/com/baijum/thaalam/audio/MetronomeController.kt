@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.Meter
@@ -19,6 +20,7 @@ import com.baijum.thaalam.data.SettingsRepository
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.data.TalaPlayback
 import com.baijum.thaalam.data.UiPreferences
 import com.baijum.thaalam.domain.LayerFactory
 import com.baijum.thaalam.domain.LayerMutations
@@ -42,6 +44,9 @@ data class PlaybackState(
     val isCountIn: Boolean = false,
     val countInBarsRemaining: Int = 0,
     val effectiveBpm: Double = 0.0,
+    val gesture: AngaGesture = AngaGesture.NONE,
+    /** Base BPM before kalam, useful for the tempo card subtitle. */
+    val baseBpm: Double = 0.0,
 )
 
 /**
@@ -113,7 +118,8 @@ class MetronomeController private constructor(
         visualGeneration++
         _playback.value = PlaybackState(
             isPlaying = true,
-            effectiveBpm = settings.bpm,
+            effectiveBpm = settings.effectiveBpm,
+            baseBpm = settings.bpm,
         )
         _visualPlayback.value = _playback.value
         engine.start(settings)
@@ -143,6 +149,8 @@ class MetronomeController private constructor(
             isCountIn = tick.isCountIn,
             countInBarsRemaining = tick.countInBarsRemaining,
             effectiveBpm = tick.bpm,
+            gesture = tick.gesture,
+            baseBpm = _settings.value.bpm,
         )
         _playback.value = state
         val latency = _uiPreferences.value.visualLatencyMs
@@ -371,11 +379,37 @@ class MetronomeController private constructor(
         updateSettings { it.copy(rampEveryBars = bars.coerceIn(1, 64)) }
     }
 
-    fun applyTala(tala: Tala, nadai: Subdivision = Subdivision.QUARTER, autoStart: Boolean = false) {
+    fun applyTala(
+        tala: Tala,
+        nadai: Subdivision = Subdivision.QUARTER,
+        autoStart: Boolean = false,
+        playback: TalaPlayback = TalaPlayback(),
+    ) {
         updateSettings { current ->
-            TalaApplication.apply(tala = tala, base = current, nadai = nadai)
+            TalaApplication.apply(
+                tala = tala,
+                base = current,
+                nadai = nadai,
+                playback = playback,
+            )
         }
         if (autoStart) startPlayback()
+    }
+
+    fun setKalam(kalam: Int) {
+        updateSettings { TalaApplication.withKalam(it, kalam) }
+    }
+
+    fun setKalai(kalai: Int) {
+        updateSettings { TalaApplication.withKalai(it, kalai) }
+    }
+
+    fun setEduppu(eduppuOffsetAksharas: Double) {
+        updateSettings { TalaApplication.withEduppu(it, eduppuOffsetAksharas) }
+    }
+
+    fun setTalaPlayback(playback: TalaPlayback) {
+        updateSettings { TalaApplication.withPlayback(it, playback) }
     }
 
     fun clearTala() {

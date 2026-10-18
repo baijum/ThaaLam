@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +41,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,19 +55,25 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
+import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.data.TalaPlayback
 import com.baijum.thaalam.data.Tradition
 import com.baijum.thaalam.domain.TalaLibrary
+import com.baijum.thaalam.domain.TempoMath
 import com.baijum.thaalam.ui.components.FieldLabel
 import com.baijum.thaalam.ui.components.SectionCard
 import com.baijum.thaalam.ui.theme.LocalReduceMotion
 import com.baijum.thaalam.ui.theme.thaaFilterChipColors
+import com.baijum.thaalam.ui.theme.thaaSliderColors
 import com.baijum.thaalam.viewmodel.MainViewModel
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -233,8 +242,25 @@ private fun TalaDetailSheet(
 ) {
     val settings by viewModel.settings.collectAsState()
     val playback by viewModel.playback.collectAsState()
-    var nadai by remember(tala.id) { mutableStateOf(Subdivision.QUARTER) }
-    val isActive = settings.talaId == tala.id && playback.isPlaying
+    val isLoaded = settings.talaId == tala.id
+    val isActive = isLoaded && playback.isPlaying
+    var nadai by remember(tala.id) {
+        mutableStateOf(if (isLoaded) settings.subdivision else Subdivision.QUARTER)
+    }
+    var kalam by remember(tala.id) {
+        mutableIntStateOf(if (isLoaded) settings.talaPlayback.kalam else 1)
+    }
+    var kalai by remember(tala.id) {
+        mutableIntStateOf(if (isLoaded) settings.talaPlayback.kalai else 1)
+    }
+    var eduppu by remember(tala.id) {
+        mutableDoubleStateOf(if (isLoaded) settings.talaPlayback.eduppuOffsetAksharas else 0.0)
+    }
+
+    val playbackOptions = TalaPlayback(kalam = kalam, kalai = kalai, eduppuOffsetAksharas = eduppu)
+    val effectiveBpm = (settings.bpm * kalam)
+        .coerceIn(MetronomeSettings.MIN_BPM, MetronomeSettings.MAX_EFFECTIVE_BPM)
+    val activeGesture = if (isActive) tala.gestureAt(playback.beat) else AngaGesture.NONE
 
     Column(
         modifier = Modifier
@@ -275,6 +301,24 @@ private fun TalaDetailSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (isActive) {
+                Text(
+                    text = buildString {
+                        append("Now: pulse ")
+                        append(playback.beat + 1)
+                        tala.bolAt(playback.beat)?.let {
+                            append(" · ")
+                            append(it)
+                        }
+                        if (activeGesture != AngaGesture.NONE) {
+                            append(" · ")
+                            append(activeGesture.displayName)
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         if (tala.bols.isNotEmpty()) {
@@ -284,6 +328,7 @@ private fun TalaDetailSheet(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     tala.bols.forEachIndexed { index, bol ->
+                        val isCurrent = isActive && playback.beat == index
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = tala.markerAt(index) ?: " ",
@@ -293,11 +338,21 @@ private fun TalaDetailSheet(
                             )
                             Surface(
                                 shape = MaterialTheme.shapes.small,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                color = if (isCurrent) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
                             ) {
                                 Text(
                                     text = bol,
                                     style = MaterialTheme.typography.bodySmall,
+                                    color = if (isCurrent) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
+                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                             }
@@ -305,6 +360,112 @@ private fun TalaDetailSheet(
                     }
                 }
             }
+        }
+
+        SectionCard(
+            title = "Kalam",
+            subtitle = "Akshara speed. The base tempo is kept, so 1x always restores it.",
+        ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TalaPlayback.KALAM_OPTIONS.forEach { option ->
+                    FilterChip(
+                        colors = thaaFilterChipColors(),
+                        selected = kalam == option,
+                        onClick = {
+                            kalam = option
+                            if (isLoaded) viewModel.setKalam(option)
+                        },
+                        label = { Text("${option}x") },
+                    )
+                }
+            }
+            Text(
+                text = "Base ${TempoMath.formatBpm(settings.bpm)} BPM → " +
+                    "${TempoMath.formatBpm(effectiveBpm)} BPM at ${kalam}x",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SectionCard(
+            title = "Kalai",
+            subtitle = "Clicks per akshara. 2-kalai doubles the current nadai.",
+        ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TalaPlayback.KALAI_OPTIONS.forEach { option ->
+                    FilterChip(
+                        colors = thaaFilterChipColors(),
+                        selected = kalai == option,
+                        onClick = {
+                            kalai = option
+                            if (isLoaded) viewModel.setKalai(option)
+                        },
+                        label = { Text("$option-kalai") },
+                    )
+                }
+            }
+            Text(
+                text = "${nadai.ticksPerBeat * kalai} click" +
+                    "${if (nadai.ticksPerBeat * kalai == 1) "" else "s"} per akshara",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        SectionCard(
+            title = "Eduppu",
+            subtitle = "Where the cycle starts. The count-in ends just before this point.",
+        ) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                TalaPlayback.EDUPPU_OPTIONS.forEach { option ->
+                    FilterChip(
+                        colors = thaaFilterChipColors(),
+                        selected = eduppu == option,
+                        onClick = {
+                            eduppu = option
+                            if (isLoaded) viewModel.setEduppu(option)
+                        },
+                        label = { Text(TalaPlayback.eduppuLabel(option)) },
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FieldLabel("Custom", modifier = Modifier.weight(1f))
+                Text(
+                    text = TalaPlayback.eduppuLabel(eduppu),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Slider(
+                value = eduppu.toFloat(),
+                onValueChange = {
+                    eduppu = TalaPlayback.snapEduppu(it.toDouble())
+                },
+                onValueChangeFinished = {
+                    if (isLoaded) viewModel.setEduppu(eduppu)
+                },
+                valueRange = -4f..4f,
+                steps = 31,
+                colors = thaaSliderColors(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        contentDescription = "Eduppu offset in aksharas"
+                        stateDescription = TalaPlayback.eduppuLabel(eduppu)
+                    },
+            )
+            Text(
+                text = "Negative is atita (before sam); positive is anagata (after sam).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         SectionCard(
@@ -340,7 +501,10 @@ private fun TalaDetailSheet(
                     FilterChip(
                         colors = thaaFilterChipColors(),
                         selected = nadai == subdivision,
-                        onClick = { nadai = subdivision },
+                        onClick = {
+                            nadai = subdivision
+                            if (isLoaded) viewModel.setSubdivision(subdivision)
+                        },
                         label = { Text(label) },
                     )
                 }
@@ -350,13 +514,20 @@ private fun TalaDetailSheet(
         SectionCard(title = "Tempo") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = com.baijum.thaalam.domain.TempoMath.formatBpm(settings.bpm),
+                    text = TempoMath.formatBpm(settings.bpm),
                     style = MaterialTheme.typography.displayMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = " BPM",
+                    text = " base BPM",
                     style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (kalam > 1) {
+                Text(
+                    text = "Sounds at ${TempoMath.formatBpm(effectiveBpm)} BPM in ${kalam}x kalam",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -367,10 +538,18 @@ private fun TalaDetailSheet(
             )
         }
 
+        if (isLoaded) {
+            Text(
+                text = "Changes apply live · ${playbackOptions.summary}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(
                 onClick = {
-                    viewModel.applyTala(tala, nadai, autoStart = false)
+                    viewModel.applyTala(tala, nadai, autoStart = false, playback = playbackOptions)
                     onDone()
                 },
                 modifier = Modifier.weight(1f),
@@ -379,13 +558,24 @@ private fun TalaDetailSheet(
             }
             Button(
                 onClick = {
-                    viewModel.applyTala(tala, nadai, autoStart = true)
+                    viewModel.applyTala(tala, nadai, autoStart = true, playback = playbackOptions)
                     onDone()
                 },
                 modifier = Modifier.weight(1f),
             ) {
                 Text(if (isActive) "Restart" else "Start")
             }
+        }
+        TextButton(
+            onClick = {
+                if (!isLoaded) {
+                    viewModel.applyTala(tala, nadai, autoStart = false, playback = playbackOptions)
+                }
+                viewModel.savePreset("${tala.name} · ${playbackOptions.summary}")
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Save as a practice preset")
         }
         TextButton(onClick = onDone) {
             Text("Back to library")
@@ -423,10 +613,12 @@ private fun TalaCycle(tala: Tala, activeBeat: Int, isPlaying: Boolean) {
                             else -> MaterialTheme.colorScheme.secondary
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val marker = if (starts.contains(beat)) tala.markerAt(beat) else null
+                            val gesture = tala.gestureAt(beat)
                             Text(
-                                text = if (starts.contains(beat)) tala.markerAt(beat) ?: "|" else " ",
+                                text = marker ?: gesture.symbol.ifEmpty { " " },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = color,
+                                color = if (marker != null) color else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 10.sp,
                                 modifier = Modifier.height(13.dp),
                             )
@@ -454,7 +646,12 @@ private fun TalaCycle(tala: Tala, activeBeat: Int, isPlaying: Boolean) {
                             Text(
                                 text = tala.bolAt(beat) ?: " ",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (active) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 9.sp,
                                 maxLines = 1,
                                 modifier = Modifier.width(38.dp),
@@ -467,4 +664,9 @@ private fun TalaCycle(tala: Tala, activeBeat: Int, isPlaying: Boolean) {
             index += length
         }
     }
+    Text(
+        text = "Gestures: ● clap · ○ finger · ◐ wave · X tali · 0 khali",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

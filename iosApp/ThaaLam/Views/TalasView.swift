@@ -190,9 +190,39 @@ struct TalaDetailView: View {
     let onDone: () -> Void
 
     @State private var nadaiTicks = 1
+    @State private var kalam = 1
+    @State private var kalai = 1
+    @State private var eduppuAksharas = 0.0
+    @State private var didLoadInitialState = false
 
-    private var isActive: Bool {
-        vm.settings.talaId == tala.id && vm.playback.isPlaying
+    private var isLoaded: Bool { vm.settings.talaId == tala.id }
+    private var isActive: Bool { isLoaded && vm.playback.isPlaying }
+
+    private var kalamOptions: [Int] {
+        TalaFactory.shared.kalamOptionsCsv()
+            .split(separator: ",")
+            .compactMap { Int($0) }
+    }
+
+    private var kalaiOptions: [Int] {
+        TalaFactory.shared.kalaiOptionsCsv()
+            .split(separator: ",")
+            .compactMap { Int($0) }
+    }
+
+    private var eduppuOptions: [Double] {
+        TalaFactory.shared.eduppuOptionsCsv()
+            .split(separator: ",")
+            .compactMap { Double($0) }
+    }
+
+    private var effectiveBpm: Double {
+        min(max(vm.settings.bpm * Double(kalam), 10), 1_600)
+    }
+
+    private var activeGesture: AngaGesture {
+        guard isActive else { return .none }
+        return tala.gestureAt(index: Int32(max(0, vm.playback.beat)))
     }
 
     private var nadaiOptions: [(ticks: Int, label: String)] {
@@ -220,82 +250,22 @@ struct TalaDetailView: View {
                             .font(.system(size: 14))
                             .foregroundStyle(ThaaLamTheme.textSecondary)
                     }
-                    SectionCard(title: "Cycle") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            TalaCycleView(
-                                tala: tala,
-                                activeBeat: isActive ? vm.playback.beat : -1,
-                                isPlaying: isActive
-                            )
-                            Text("The first pulse is sam. Clap/tali sections are accented; open khali sections are ghosted.")
-                                .font(.system(size: 12))
-                                .foregroundStyle(ThaaLamTheme.textSecondary)
-                        }
-                    }
+                    cycleCard
                     if !tala.bols.isEmpty {
-                        SectionCard(title: "Theka") {
-                            FlowLayout(spacing: 8, lineSpacing: 8) {
-                                ForEach(Array(tala.bols.enumerated()), id: \.offset) { entry in
-                                    VStack(spacing: 2) {
-                                        Text(tala.markerAt(index: Int32(entry.offset)) ?? " ")
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundStyle(ThaaLamTheme.saffron)
-                                        Text(entry.element)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(ThaaLamTheme.textPrimary)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                    .fill(ThaaLamTheme.surfaceVariant)
-                                            )
-                                    }
-                                }
-                            }
-                        }
+                        thekaCard
                     }
-                    SectionCard(
-                        title: "Subdivision",
-                        subtitle: tala.tradition == .carnatic
-                            ? "Nadai (gathi) multiplies the internal pulse of every akshara"
-                            : "Theka cycles usually click one pulse per akshara"
-                    ) {
-                        FlowLayout(spacing: 8, lineSpacing: 6) {
-                            ForEach(nadaiOptions, id: \.ticks) { option in
-                                ChipButton(label: option.label, selected: nadaiTicks == option.ticks) {
-                                    nadaiTicks = option.ticks
-                                }
-                            }
-                        }
+                    kalamCard
+                    kalaiCard
+                    eduppuCard
+                    subdivisionCard
+                    tempoCard
+                    if isLoaded {
+                        Text("Changes apply live · \(playbackOptions.summary)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ThaaLamTheme.saffron)
                     }
-                    SectionCard(title: "Tempo") {
-                        HStack(alignment: .lastTextBaseline, spacing: 6) {
-                            Text(formatBpmStatic(vm.settings.bpm))
-                                .font(.system(size: 42, weight: .bold))
-                                .foregroundStyle(ThaaLamTheme.saffron)
-                            Text("BPM")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(ThaaLamTheme.textSecondary)
-                        }
-                        Text("The tempo is preserved from your current session; adjust it on the metronome screen.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(ThaaLamTheme.textSecondary)
-                    }
-                    HStack(spacing: 12) {
-                        Button("Load") {
-                            vm.applyTala(tala, nadaiTicks: nadaiTicks, autoStart: false)
-                            dismiss()
-                            onDone()
-                        }
-                        .buttonStyle(SecondaryButtonStyle())
-
-                        Button(isActive ? "Restart" : "Start") {
-                            vm.applyTala(tala, nadaiTicks: nadaiTicks, autoStart: true)
-                            dismiss()
-                            onDone()
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                    }
+                    actionButtons
+                    savePresetButton
                     Button("Back to library") { dismiss() }
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(ThaaLamTheme.textSecondary)
@@ -307,14 +277,39 @@ struct TalaDetailView: View {
         }
         .presentationDetents([.large])
         .onAppear {
+            guard !didLoadInitialState else { return }
+            didLoadInitialState = true
+            if isLoaded {
+                nadaiTicks = Int(vm.settings.subdivision.ticksPerBeat)
+                kalam = Int(vm.settings.talaPlayback.kalam)
+                kalai = Int(vm.settings.talaPlayback.kalai)
+                eduppuAksharas = vm.settings.talaPlayback.eduppuOffsetAksharas
+            }
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-talaAutoStart") {
-                vm.applyTala(tala, nadaiTicks: nadaiTicks, autoStart: true)
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-talaKalam2") { kalam = 2 }
+            if args.contains("-talaKalam4") { kalam = 4 }
+            if args.contains("-talaKalai2") { kalai = 2 }
+            if args.contains("-talaEduppuHalf") { eduppuAksharas = 0.5 }
+            if args.contains("-talaEduppuBefore") { eduppuAksharas = -0.5 }
+            if args.contains("-talaAutoStart") {
+                vm.applyTala(
+                    tala,
+                    nadaiTicks: nadaiTicks,
+                    kalam: kalam,
+                    kalai: kalai,
+                    eduppuOffsetAksharas: eduppuAksharas,
+                    autoStart: true
+                )
                 dismiss()
                 onDone()
             }
             #endif
         }
+    }
+
+    private var playbackOptions: TalaPlayback {
+        TalaPlayback(kalam: Int32(kalam), kalai: Int32(kalai), eduppuOffsetAksharas: eduppuAksharas)
     }
 
     private var header: some View {
@@ -326,6 +321,258 @@ struct TalaDetailView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(ThaaLamTheme.textSecondary)
         }
+    }
+
+    private var cycleCard: some View {
+        SectionCard(title: "Cycle") {
+            VStack(alignment: .leading, spacing: 10) {
+                TalaCycleView(
+                    tala: tala,
+                    activeBeat: isActive ? vm.playback.beat : -1,
+                    isPlaying: isActive
+                )
+                Text("The first pulse is sam. Clap/tali sections are accented; open khali sections are ghosted.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+                if isActive {
+                    Text(nowPlayingLine)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ThaaLamTheme.saffron)
+                }
+            }
+        }
+    }
+
+    private var nowPlayingLine: String {
+        var parts = ["Now: pulse \(vm.playback.beat + 1)"]
+        if let bol = tala.bolAt(index: Int32(max(0, vm.playback.beat))) {
+            parts.append(bol)
+        }
+        if activeGesture != .none {
+            parts.append(activeGesture.displayName)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private var thekaCard: some View {
+        SectionCard(title: "Theka") {
+            FlowLayout(spacing: 8, lineSpacing: 8) {
+                ForEach(Array(tala.bols.enumerated()), id: \.offset) { entry in
+                    let current = isActive && Int(vm.playback.beat) == entry.offset
+                    VStack(spacing: 2) {
+                        Text(tala.markerAt(index: Int32(entry.offset)) ?? " ")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(ThaaLamTheme.saffron)
+                        Text(entry.element)
+                            .font(.system(size: 12, weight: current ? .bold : .regular))
+                            .foregroundStyle(current ? Color(hex: 0x2A1900) : ThaaLamTheme.textPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(current ? ThaaLamTheme.saffron : ThaaLamTheme.surfaceVariant)
+                            )
+                    }
+                }
+            }
+        }
+    }
+
+    private var kalamCard: some View {
+        SectionCard(
+            title: "Kalam",
+            subtitle: "Akshara speed. The base tempo is kept, so 1x always restores it."
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                FlowLayout(spacing: 8, lineSpacing: 6) {
+                    ForEach(kalamOptions, id: \.self) { option in
+                        ChipButton(label: "\(option)x", selected: kalam == option) {
+                            kalam = option
+                            if isLoaded { vm.setKalam(option) }
+                        }
+                    }
+                }
+                Text("Base \(formatBpmStatic(vm.settings.bpm)) BPM → \(formatBpmStatic(effectiveBpm)) BPM at \(kalam)x")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+        }
+    }
+
+    private var kalaiCard: some View {
+        SectionCard(
+            title: "Kalai",
+            subtitle: "Clicks per akshara. 2-kalai doubles the current nadai."
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                FlowLayout(spacing: 8, lineSpacing: 6) {
+                    ForEach(kalaiOptions, id: \.self) { option in
+                        ChipButton(label: "\(option)-kalai", selected: kalai == option) {
+                            kalai = option
+                            if isLoaded { vm.setKalai(option) }
+                        }
+                    }
+                }
+                Text("\(nadaiTicks * kalai) click\(nadaiTicks * kalai == 1 ? "" : "s") per akshara")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+        }
+    }
+
+    private var eduppuCard: some View {
+        SectionCard(
+            title: "Eduppu",
+            subtitle: "Where the cycle starts. The count-in ends just before this point."
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                FlowLayout(spacing: 8, lineSpacing: 6) {
+                    ForEach(eduppuOptions, id: \.self) { option in
+                        ChipButton(
+                            label: TalaFactory.shared.eduppuLabel(
+                                eduppuOffsetAksharas: option
+                            ),
+                            selected: abs(eduppuAksharas - option) < 0.001
+                        ) {
+                            eduppuAksharas = option
+                            if isLoaded { vm.setEduppu(option) }
+                        }
+                    }
+                }
+                HStack {
+                    Text("Custom")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                    Spacer()
+                    Text(
+                        TalaFactory.shared.eduppuLabel(
+                            eduppuOffsetAksharas: eduppuAksharas
+                        )
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Slider(
+                    value: Binding(
+                        get: { eduppuAksharas },
+                        set: {
+                            eduppuAksharas = (($0 * 4).rounded() / 4)
+                        }
+                    ),
+                    in: -4...4,
+                    step: 0.25,
+                    onEditingChanged: { editing in
+                        if !editing, isLoaded {
+                            vm.setEduppu(eduppuAksharas)
+                        }
+                    }
+                )
+                .tint(ThaaLamTheme.saffron)
+                .accessibilityLabel("Eduppu offset in aksharas")
+                .accessibilityValue(
+                    TalaFactory.shared.eduppuLabel(
+                        eduppuOffsetAksharas: eduppuAksharas
+                    )
+                )
+                Text("Negative is atita (before sam); positive is anagata (after sam).")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+        }
+    }
+
+    private var subdivisionCard: some View {
+        SectionCard(
+            title: "Subdivision",
+            subtitle: tala.tradition == .carnatic
+                ? "Nadai (gathi) multiplies the internal pulse of every akshara"
+                : "Theka cycles usually click one pulse per akshara"
+        ) {
+            FlowLayout(spacing: 8, lineSpacing: 6) {
+                ForEach(nadaiOptions, id: \.ticks) { option in
+                    ChipButton(label: option.label, selected: nadaiTicks == option.ticks) {
+                        nadaiTicks = option.ticks
+                        if isLoaded { vm.setSubdivision(ticks: option.ticks) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var tempoCard: some View {
+        SectionCard(title: "Tempo") {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .lastTextBaseline, spacing: 6) {
+                    Text(formatBpmStatic(vm.settings.bpm))
+                        .font(.system(size: 42, weight: .bold))
+                        .foregroundStyle(ThaaLamTheme.saffron)
+                    Text("base BPM")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                if kalam > 1 {
+                    Text("Sounds at \(formatBpmStatic(effectiveBpm)) BPM in \(kalam)x kalam")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ThaaLamTheme.textSecondary)
+                }
+                Text("The tempo is preserved from your current session; adjust it on the metronome screen.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ThaaLamTheme.textSecondary)
+            }
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            Button("Load") {
+                vm.applyTala(
+                    tala,
+                    nadaiTicks: nadaiTicks,
+                    kalam: kalam,
+                    kalai: kalai,
+                    eduppuOffsetAksharas: eduppuAksharas,
+                    autoStart: false
+                )
+                dismiss()
+                onDone()
+            }
+            .buttonStyle(SecondaryButtonStyle())
+
+            Button(isActive ? "Restart" : "Start") {
+                vm.applyTala(
+                    tala,
+                    nadaiTicks: nadaiTicks,
+                    kalam: kalam,
+                    kalai: kalai,
+                    eduppuOffsetAksharas: eduppuAksharas,
+                    autoStart: true
+                )
+                dismiss()
+                onDone()
+            }
+            .buttonStyle(PrimaryButtonStyle())
+        }
+    }
+
+    private var savePresetButton: some View {
+        Button("Save as a practice preset") {
+            if !isLoaded {
+                vm.applyTala(
+                    tala,
+                    nadaiTicks: nadaiTicks,
+                    kalam: kalam,
+                    kalai: kalai,
+                    eduppuOffsetAksharas: eduppuAksharas,
+                    autoStart: false
+                )
+            }
+            vm.savePreset(
+                name: TalaFactory.shared.drillName(tala: tala, playback: playbackOptions)
+            )
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(ThaaLamTheme.saffron)
+        .frame(maxWidth: .infinity)
     }
 }
 

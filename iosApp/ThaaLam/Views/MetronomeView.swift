@@ -12,10 +12,17 @@ struct MetronomeView: View {
     @State private var swingDraft: Double?
 
     private var displayBpm: Double {
-        if vm.playback.isPlaying && vm.settings.rampEnabled && vm.playback.effectiveBpm > 0 {
+        // The large readout is what the player hears: base tempo scaled by
+        // kalam (and by the ramp while playing). The slider edits the base.
+        if vm.playback.isPlaying && vm.playback.effectiveBpm > 0 {
             return vm.playback.effectiveBpm
         }
-        return vm.settings.bpm
+        return vm.settings.effectiveBpm
+    }
+
+    private var talaPlaybackSubtitle: String? {
+        guard vm.currentTala != nil, !vm.settings.talaPlayback.isDefault else { return nil }
+        return "Base \(formatBpm(vm.settings.bpm)) BPM · \(vm.settings.talaPlayback.summary)"
     }
 
     var body: some View {
@@ -122,7 +129,9 @@ struct MetronomeView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Tala mode: \(tala.name). Double tap to leave tala mode")
+                .accessibilityLabel(
+                    "Tala mode: \(tala.name), \(vm.settings.talaPlayback.summary). Double tap to leave tala mode"
+                )
             }
         }
     }
@@ -138,6 +147,11 @@ struct MetronomeView: View {
                         Text(vm.currentTala?.name ?? "Free meter · \(vm.settings.meter.label)")
                             .font(.system(size: 12))
                             .foregroundStyle(ThaaLamTheme.textSecondary)
+                        if let subtitle = talaPlaybackSubtitle {
+                            Text(subtitle)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(ThaaLamTheme.textSecondary)
+                        }
                     }
                     Spacer()
                     if vm.playback.isPlaying {
@@ -197,6 +211,7 @@ struct MetronomeView: View {
                     playback: vm.visualPlayback,
                     markers: markers,
                     bols: vm.currentTala?.bols ?? [],
+                    gestures: vm.currentTala?.gestures ?? [],
                     onTap: { vm.cycleBeat($0) }
                 )
                 statusLine
@@ -216,7 +231,15 @@ struct MetronomeView: View {
         if playback.isCountIn {
             return "Count-in · \(playback.countInRemaining) bar(s) to go"
         }
-        return "Bar \(playback.bar) · Pulse \(playback.beat + 1) · \(formatBpm(playback.effectiveBpm)) BPM"
+        var parts = [
+            "Bar \(playback.bar)",
+            "Pulse \(playback.beat + 1)",
+        ]
+        if playback.gesture != .none {
+            parts.append(playback.gesture.displayName)
+        }
+        parts.append("\(formatBpm(playback.effectiveBpm)) BPM")
+        return parts.joined(separator: " · ")
     }
 
     private var transportRow: some View {

@@ -75,7 +75,11 @@ final class MetronomeViewModel: ObservableObject {
             visualPlayback = .idle
             return
         }
-        playback = PlaybackSnapshot(isPlaying: true, effectiveBpm: settings.bpm)
+        playback = PlaybackSnapshot(
+            isPlaying: true,
+            effectiveBpm: settings.effectiveBpm,
+            baseBpm: settings.bpm
+        )
         visualPlayback = playback
         haptic.prepare()
     }
@@ -100,7 +104,9 @@ final class MetronomeViewModel: ObservableObject {
             kind: tick.kind,
             isCountIn: tick.isCountIn,
             countInRemaining: tick.countInRemaining,
-            effectiveBpm: tick.bpm
+            effectiveBpm: tick.bpm,
+            gesture: tick.gesture,
+            baseBpm: settings.bpm
         )
         playback = snapshot
 
@@ -426,16 +432,55 @@ final class MetronomeViewModel: ObservableObject {
 
     // MARK: - Talas
 
-    func applyTala(_ tala: Tala, nadaiTicks: Int, autoStart: Bool) {
-        let updated = TalaApplication.shared.applyTala(
+    func applyTala(
+        _ tala: Tala,
+        nadaiTicks: Int,
+        kalam: Int,
+        kalai: Int,
+        eduppuOffsetAksharas: Double,
+        autoStart: Bool
+    ) {
+        let updated = TalaFactory.shared.applyTala(
             tala: tala,
             base: settings,
-            nadaiTicks: Int32(nadaiTicks)
+            nadaiTicks: Int32(nadaiTicks),
+            baseBpm: settings.bpm,
+            kalam: Int32(kalam),
+            kalai: Int32(kalai),
+            eduppuOffsetAksharas: eduppuOffsetAksharas
         )
         commit(updated)
         if autoStart {
             startPlayback()
         }
+    }
+
+    func setKalam(_ kalam: Int) {
+        commit(SettingsMutations.shared.setKalam(settings: settings, kalam: Int32(kalam)))
+    }
+
+    func setKalai(_ kalai: Int) {
+        commit(SettingsMutations.shared.setKalai(settings: settings, kalai: Int32(kalai)))
+    }
+
+    func setEduppu(_ aksharas: Double) {
+        commit(
+            SettingsMutations.shared.setEduppu(
+                settings: settings,
+                eduppuOffsetAksharas: aksharas
+            )
+        )
+    }
+
+    func setTalaPlayback(kalam: Int, kalai: Int, eduppuOffsetAksharas: Double) {
+        commit(
+            SettingsMutations.shared.setTalaPlayback(
+                settings: settings,
+                kalam: Int32(kalam),
+                kalai: Int32(kalai),
+                eduppuOffsetAksharas: eduppuOffsetAksharas
+            )
+        )
     }
 
     func clearTala() {

@@ -10,8 +10,9 @@ import com.baijum.thaalam.data.Tradition
  *
  * Carnatic: all 35 Suladi Sapta Talas (7 talas × 5 jathis) plus the common
  * Chapu talas. Hindustani: Teental, Jhaptal, Rupak, Ektaal, Dadra, Keherwa,
- * Deepchandi and Tilwada. The catalogue is plain data, so the tala browser and
- * the metronome share exactly the same cycle definitions.
+ * Deepchandi, Jhoomra and Tilwada, with theka bols wherever a stable,
+ * commonly taught version exists. The catalogue is plain data, so the tala
+ * browser and the metronome share exactly the same cycle definitions.
  */
 object TalaLibrary {
 
@@ -174,10 +175,29 @@ object TalaLibrary {
             details = "14 aksharas · 3 + 4 + 3 + 4, associated with thumri and hori",
         ),
         vibhagTala(
+            id = "jhoomra",
+            name = "Jhoomra",
+            lengths = listOf(3, 4, 3, 4),
+            markers = listOf("X", "2", "0", "3"),
+            bols = listOf(
+                "Dhin", "-Dha", "TiRiKaTa",
+                "Dhin", "Dhin", "Dha Ge", "TiRiKaTa",
+                "Tin", "-Ta", "TiRiKaTa",
+                "Dhin", "Dhin", "Dha Ge", "TiRiKaTa",
+            ),
+            details = "14 aksharas · 3 + 4 + 3 + 4, the slow-khyal companion to Deepchandi",
+        ),
+        vibhagTala(
             id = "tilwada",
             name = "Tilwada",
             lengths = listOf(4, 4, 4, 4),
             markers = listOf("X", "2", "0", "3"),
+            bols = listOf(
+                "Dha", "TiRiKaTa", "Dhin", "Dhin",
+                "Dha", "Dha", "Tin", "Tin",
+                "Ta", "TiRiKaTa", "Dhin", "Dhin",
+                "Dha", "Dha", "Dhin", "Dhin",
+            ),
             details = "16 aksharas · 4 + 4 + 4 + 4, a slower, ornate sixteen-beat cycle",
         ),
     )

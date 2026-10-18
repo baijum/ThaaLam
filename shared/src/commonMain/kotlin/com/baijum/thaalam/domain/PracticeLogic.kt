@@ -45,16 +45,22 @@ object PracticeLogic {
     fun shouldStepRamp(barIndex: Int, everyBars: Int): Boolean =
         barIndex > 0 && everyBars > 0 && barIndex % everyBars == 0
 
-    /** Effective BPM for a bar, including count-in and stepped ramp handling. */
+    /**
+     * Effective BPM for a bar, including count-in, kalam and stepped ramp
+     * handling. Kalam scales the base tempo, so the ramp works in performance
+     * tempo rather than in the stored base value.
+     */
     fun bpmForBar(settings: MetronomeSettings, barIndex: Int, isCountIn: Boolean): Double {
-        if (isCountIn) return TempoMath.clampBpm(settings.bpm)
-        if (!settings.rampEnabled) return TempoMath.clampBpm(settings.bpm)
+        if (isCountIn) return settings.effectiveBpm
+        if (!settings.rampEnabled) return settings.effectiveBpm
         val steps = (barIndex - 1) / settings.rampEveryBars.coerceAtLeast(1)
-        var bpm = TempoMath.clampBpm(settings.bpm)
+        // Ramp the stored base tempo, then apply kalam once. This keeps the
+        // ramp target meaningful (it is a base BPM) regardless of kalam.
+        var base = TempoMath.clampBpm(settings.bpm)
         repeat(steps) {
-            bpm = TempoMath.rampStep(bpm, settings.rampTargetBpm, settings.rampStepBpm)
+            base = TempoMath.rampStep(base, settings.rampTargetBpm, settings.rampStepBpm)
         }
-        return bpm
+        return TempoMath.clampEffectiveBpm(base * settings.talaPlayback.kalamFactor)
     }
 
     /**

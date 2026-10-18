@@ -91,7 +91,8 @@ final class ClickSynth {
         kind: PulseKind,
         isSubdivision: Bool,
         volume: Float,
-        startFrame: Int
+        startFrame: Int,
+        gesture: PulseGesture = .none
     ) {
         guard kind != .mute else { return }
         let base = spec(for: sound)
@@ -104,8 +105,8 @@ final class ClickSynth {
             }
         }()
         let subdivisionFactor = isSubdivision ? 1.42 : 1.0
-        let pitch = accentFactor * subdivisionFactor
-        let velocity = kind.velocity * (isSubdivision ? 0.46 : 1.0)
+        let pitch = accentFactor * subdivisionFactor * gesture.pitch
+        let velocity = kind.velocity * (isSubdivision ? 0.46 : 1.0) * gesture.gain
         let gain = max(0, min(1, velocity * max(0, min(1, volume))))
 
         guard let voice = voices.first(where: { $0.remaining <= 0 }) else { return }
@@ -113,8 +114,8 @@ final class ClickSynth {
             spec: VoiceSpec(
                 frequency: base.frequency * pitch,
                 harmonic: base.harmonic,
-                decayMs: base.decayMs * (isSubdivision ? 0.7 : 1.0),
-                noise: base.noise,
+                decayMs: base.decayMs * (isSubdivision ? 0.7 : 1.0) * gesture.decay,
+                noise: min(1, max(0, base.noise + gesture.noise)),
                 square: base.square
             ),
             gain: gain,

@@ -1,6 +1,7 @@
 # ThaaLam roadmap — next feature set
 
-> Status: v0.2 complete; real-device profiling still recommended
+> Status: v0.3 complete; Ashtottara talas deferred; real-device profiling still
+> recommended
 > Baseline: v0.1.0, commit `f45f89d`
 > Product constraints: offline only, no accounts, no analytics, no ads, no
 > network permissions, no third-party audio SDKs without discussion.
@@ -10,6 +11,12 @@
 > per-pulse micro-timing; composite cycle rings; preset persistence; 0.2.0
 > release notes. Remaining: real-device CPU/jitter/Bluetooth profiling and a
 > full Dynamic Type pass over the older screens.
+>
+> v0.3 delivered: kalam 1×/2×/4×, kalai 1/2, eduppu with phase-aligned
+> count-in, anga gesture timbres and visual gestures, Jhoomra and Tilwada theka
+> bols with live bol highlighting, tala practice presets, and the shared
+> playback model with tests. The 108 Ashtottara talas remain deferred pending a
+> verified source and practitioner review, as required below.
 
 This plan turns the two research reports into a sequenced, release-sized
 roadmap. It is deliberately opinionated: the next release is chosen for
@@ -22,7 +29,7 @@ The first release covers the research reports' "must-have" core and several
 
 - Sample-accurate frame scheduling on both platforms
 - Meters, additive grouping, 1–9 subdivisions, swing, four accent states
-- 35 Suladi Sapta Talas, Chapu talas, 8 Hindustani cycles, nadai
+- 35 Suladi Sapta Talas, Chapu talas, 9 Hindustani cycles, nadai
 - Count-in, gap trainer, stochastic muting, stepped tempo ramp
 - Presets, background playback, haptics, screen flash, visual latency offset
 - Accessibility labels, reduce-motion handling, light/dark themes
@@ -49,7 +56,7 @@ Each candidate was scored on four questions:
 | Per-voice sound, gain, offset | Report 2, hybrid sound and micro-timing | Global sound/volume only | **v0.2** |
 | Kalam, kalai, eduppu | Report 2, tala engine table | Basic akshara cycle only | **v0.3** |
 | Anga-specific timbres / gestures | Report 2, anga gestures | Accent/ghost only | **v0.3** |
-| 108 Ashtottara talas | Report 2, tala engine table | 46 cycles | **v0.3** |
+| 108 Ashtottara talas | Report 2, tala engine table | 47 cycles | **v0.3, deferred** |
 | Hindustani bols | Report 2, tala engine table | Theka text only | **v0.3** |
 | Setlists / song profiles | Report 2, stage UX; report 1, setlists | Flat presets only | **v0.4** |
 | Chained mixed-meter sequences | Report 2, additive/mixed-meter sequencer | One meter at a time | **v0.4** |
@@ -73,7 +80,7 @@ Each candidate was scored on four questions:
 | Release | Theme | Main outcome | Indicative size |
 |---|---|---|---|
 | **v0.2** | **Layers** | Two to four simultaneous rhythmic voices, a subdivision mixer, polyrhythm and polymeter | 8–10 weeks |
-| **v0.3** | **Tala Mastery** | Kalam, kalai, eduppu, anga timbres, 108 Ashtottara talas, richer Hindustani bols | 4–6 weeks |
+| **v0.3** | **Tala Mastery** | Kalam, kalai, eduppu, anga timbres, richer Hindustani bols; Ashtottara deferred | 4–6 weeks |
 | **v0.4** | **Songs & Stage** | Mixed-meter songs, setlists, count-off/auto-stop, stage view, continuous ramps, latency help | 6–8 weeks |
 | **v0.5** | **Practice Intelligence** | Local practice log, goals, gap 2.0, tap-accuracy grader, count-in voice | 6–8 weeks |
 | **v0.6** | **Pitch & Sound** | Drone/tanpura, temperaments, custom samples, EQ/pan, recording/export, localization | 8–10 weeks |
@@ -326,6 +333,10 @@ Platform checks:
 
 ## 5. v0.3 — Tala Mastery
 
+> **Status: implemented** (0.3.0). Kalam, kalai, eduppu, anga gestures, theka
+> highlighting and tala practice presets are shipped. Ashtottara talas are the
+> one deferred scope item; see the note under scope item 5.
+
 ### Goal
 
 Make the tala engine musically complete for Carnatic and Hindustani practice,
@@ -348,6 +359,10 @@ using the same audio clock and no special playback mode.
    on `RhythmStep` or a parallel anga map, resolved from the live snapshot.
 5. **Ashtottara talas** — add the 108-cycle catalogue if a reliable source and
    a practitioner review are available. Keep it as data, not code.
+   **Deferred:** the published lists located during v0.3 disagree on names,
+   anga structure and ordering, and no practitioner review was available. The
+   catalogue is data-only, so it can be added in a later release without an
+   engine change. Shipping a guessed list would be worse than shipping none.
 6. **Hindustani bols** — display the theka with the current bol highlighted;
    optional spoken/sample playback can follow in v0.6.
 7. **Tala practice presets** — kalam ladder (1x → 2x → 4x), nadai cycle, and
@@ -355,13 +370,17 @@ using the same audio clock and no special playback mode.
 
 ### Data and compiler
 
-- `TalaPlayback(kalam, kalai, eduppuOffsetAksharas)`.
+- `TalaPlayback(kalam, kalai, eduppuOffsetAksharas)` — **implemented**.
 - `TalaApplication.apply()` gains kalam/kalai/eduppu and writes the effective
-  meter, subdivision and count-in offset.
+  meter, subdivision and count-in offset — **implemented**; kalam scales the
+  effective BPM, kalai scales the tick grid, and eduppu rotates the step list.
 - `Tala` gains optional `angaTimbres` or a mapping from `AngaType` to a
-  `SoundSet`/click variant.
+  `SoundSet`/click variant — **implemented as `Tala.gestures` plus a gesture
+  colour in `ClickSynth`** (clap/finger/wave/tali/khali).
 - `TalaLibrary` gains `ashtottara` and more Hindustani cycles; every entry
-  tested for total aksharas, anga sums, marker placement and bol length.
+  tested for total aksharas, anga sums, marker placement and bol length —
+  **partly implemented**: Jhoomra and Tilwada bols shipped, gestures and bol
+  lengths tested; `ashtottara` deferred.
 
 ### Acceptance
 
@@ -639,13 +658,15 @@ Without telemetry, success is measured by task tests and timing measurements:
 
 ## 12. Immediate next actions
 
-1. Review and approve the v0.2 scope and the layer semantics in section 4.
-2. Write the shared `LayerSettings`/`LayerCompiler` tests before touching either
-   engine (spec-first).
-3. Add the timing simulator and golden fixtures; capture the v0.1 one-voice
-   baseline.
-4. Implement the Android multi-voice engine behind the existing single-voice
-   path, then port the same structure to iOS.
-5. Build the layers UI and preset migration; run the full release checklist.
-6. Re-estimate v0.3 after v0.2 lands; the tala work is data-heavy and may be
-   smaller than the estimate.
+1. ~~Review and approve the v0.2 scope and the layer semantics.~~ Done.
+2. ~~Write the shared layer tests before touching either engine.~~ Done.
+3. ~~Add the timing simulator and golden fixtures.~~ Done.
+4. ~~Implement the Android multi-voice engine, then port the same structure to
+   iOS.~~ Done.
+5. ~~Build the layers UI and preset migration; run the full release checklist.~~
+   Done.
+6. ~~Re-estimate v0.3 after v0.2 lands.~~ Done; v0.3 shipped as 0.3.0.
+7. Next: v0.4 Songs & Stage (mixed-meter sections, setlists, count-off,
+   stage view, continuous ramps, latency assistance).
+8. Before v0.4: verify the Ashtottara source and arrange a Carnatic /
+   Hindustani practitioner review so the tala depth item can close.

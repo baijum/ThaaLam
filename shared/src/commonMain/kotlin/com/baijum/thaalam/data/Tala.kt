@@ -110,6 +110,56 @@ data class Tala(
             return kinds
         }
 
+    /**
+     * Hand gesture for every akshara of the cycle.
+     *
+     * Carnatic laghu = one clap followed by finger counts; dhrutam = clap +
+     * wave; anudhrutam = clap; chapu groups are clapped at their start and
+     * counted with the fingers. Hindustani vibhags mark tali (clap) or khali
+     * (wave); the inner aksharas carry [AngaGesture.NONE] because the theka,
+     * not the hand, fills them.
+     */
+    val gestures: List<AngaGesture>
+        get() = buildList {
+            angas.forEach { anga ->
+                when (anga.type) {
+                    AngaType.LAGHU -> {
+                        add(AngaGesture.CLAP)
+                        repeat(anga.length - 1) { add(AngaGesture.FINGER) }
+                    }
+                    AngaType.DHRUTAM -> {
+                        add(AngaGesture.CLAP)
+                        repeat(anga.length - 1) { add(AngaGesture.WAVE) }
+                    }
+                    AngaType.ANUDHRUTAM -> {
+                        add(AngaGesture.CLAP)
+                        repeat(anga.length - 1) { add(AngaGesture.CLAP) }
+                    }
+                    AngaType.CHAPU -> {
+                        repeat(anga.length) { index ->
+                            add(if (index == 0) AngaGesture.CLAP else AngaGesture.FINGER)
+                        }
+                    }
+                    AngaType.VIBHAG -> {
+                        val marker = anga.marker
+                        repeat(anga.length) { index ->
+                            add(
+                                when {
+                                    index != 0 -> AngaGesture.NONE
+                                    marker == "0" -> AngaGesture.KHALI
+                                    else -> AngaGesture.TALI
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+    /** Gesture at an akshara, or [AngaGesture.NONE] outside the cycle. */
+    fun gestureAt(index: Int): AngaGesture =
+        gestures.getOrElse(index) { AngaGesture.NONE }
+
     /** Marker shown above each anga start (Carnatic symbols or Hindustani X/2/3/0). */
     val markers: List<String?>
         get() = angas.map { anga ->

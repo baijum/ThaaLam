@@ -1,5 +1,6 @@
 package com.baijum.thaalam.audio
 
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.SoundSet
 import kotlin.math.PI
@@ -108,9 +109,11 @@ class ClickSynth(private val sampleRate: Int) {
         isSubdivision: Boolean,
         volume: Float,
         startFrame: Int = 0,
+        gesture: AngaGesture = AngaGesture.NONE,
     ) {
         if (kind == BeatKind.MUTE) return
         val spec = specFor(soundSet)
+        val gestureTone = gestureTone(gesture)
         val accentFactor = when (kind) {
             BeatKind.ACCENT -> 1.28
             BeatKind.NORMAL -> 1.0
@@ -118,8 +121,10 @@ class ClickSynth(private val sampleRate: Int) {
             BeatKind.MUTE -> return
         }
         val subdivisionFactor = if (isSubdivision) 1.42 else 1.0
-        val pitch = accentFactor * subdivisionFactor
-        val velocity = kind.velocity * if (isSubdivision) 0.46f else 1.0f
+        val pitch = accentFactor * subdivisionFactor * gestureTone.pitch
+        val velocity = kind.velocity *
+            (if (isSubdivision) 0.46f else 1.0f) *
+            gestureTone.gain
         val gain = (velocity * volume.coerceIn(0f, 1f)).coerceIn(0f, 1f)
 
         var voice: Voice? = null
@@ -136,7 +141,10 @@ class ClickSynth(private val sampleRate: Int) {
         voice.start(
             spec.copy(
                 frequency = spec.frequency * pitch,
-                decayMs = spec.decayMs * if (isSubdivision) 0.7 else 1.0,
+                decayMs = spec.decayMs *
+                    (if (isSubdivision) 0.7 else 1.0) *
+                    gestureTone.decay,
+                noise = (spec.noise + gestureTone.noise).coerceIn(0.0, 1.0),
             ),
             gain = gain,
             sampleRate = sampleRate,
@@ -170,6 +178,27 @@ class ClickSynth(private val sampleRate: Int) {
         render(buffer, frames)
         return buffer
     }
+
+    /**
+     * Colours a click by the tala hand gesture: a dry clap, a brighter finger
+     * count, an open wave, or the softer khali. [AngaGesture.NONE] leaves the
+     * chosen timbre untouched.
+     */
+    private fun gestureTone(gesture: AngaGesture): GestureTone = when (gesture) {
+        AngaGesture.CLAP -> GestureTone(pitch = 1.0, decay = 0.95, noise = 0.10, gain = 1.0f)
+        AngaGesture.FINGER -> GestureTone(pitch = 1.22, decay = 0.65, noise = -0.04, gain = 0.82f)
+        AngaGesture.WAVE -> GestureTone(pitch = 0.68, decay = 1.30, noise = 0.18, gain = 0.78f)
+        AngaGesture.TALI -> GestureTone(pitch = 0.92, decay = 1.05, noise = 0.08, gain = 0.96f)
+        AngaGesture.KHALI -> GestureTone(pitch = 0.78, decay = 1.10, noise = 0.04, gain = 0.64f)
+        AngaGesture.NONE -> GestureTone(pitch = 1.0, decay = 1.0, noise = 0.0, gain = 1.0f)
+    }
+
+    private data class GestureTone(
+        val pitch: Double,
+        val decay: Double,
+        val noise: Double,
+        val gain: Float,
+    )
 
     private fun specFor(soundSet: SoundSet): VoiceSpec = when (soundSet) {
         SoundSet.CLICK -> VoiceSpec(1580.0, 1.82, 32.0, 0.10, false)

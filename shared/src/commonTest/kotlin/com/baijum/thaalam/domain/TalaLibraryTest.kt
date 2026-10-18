@@ -1,9 +1,11 @@
 package com.baijum.thaalam.domain
 
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.Subdivision
 import com.baijum.thaalam.data.Tala
+import com.baijum.thaalam.data.TalaPlayback
 import com.baijum.thaalam.data.Tradition
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -81,6 +83,47 @@ class TalaLibraryTest {
         TalaLibrary.hindustani.filter { it.bols.isNotEmpty() }.forEach { tala ->
             assertEquals(tala.aksharas, tala.bols.size, "bols for ${tala.name}")
         }
+    }
+
+    @Test
+    fun `tilwada and jhoomra carry theka bols`() {
+        val tilwada = TalaLibrary.find("hindustani.tilwada")
+        assertNotNull(tilwada)
+        assertEquals(16, tilwada.bols.size)
+        assertEquals("Dha", tilwada.bols.first())
+
+        val jhoomra = TalaLibrary.find("hindustani.jhoomra")
+        assertNotNull(jhoomra)
+        assertEquals(14, jhoomra.aksharas)
+        assertEquals(listOf(3, 4, 3, 4), jhoomra.grouping)
+        assertEquals(14, jhoomra.bols.size)
+    }
+
+    @Test
+    fun `every anga produces one gesture per akshara`() {
+        TalaLibrary.all.forEach { tala ->
+            assertEquals(tala.aksharas, tala.gestures.size, "gestures for ${tala.name}")
+            assertTrue(
+                tala.gestures.count { it != AngaGesture.NONE } >= tala.angas.size,
+                "gesture coverage for ${tala.name}",
+            )
+        }
+    }
+
+    @Test
+    fun `applying a tala with playback keeps base bpm and stores kalam`() {
+        val teental = TalaLibrary.find("hindustani.teental")!!
+        val settings = TalaApplication.apply(
+            tala = teental,
+            base = MetronomeSettings(bpm = 90.0),
+            nadai = Subdivision.QUARTER,
+            playback = TalaPlayback(kalam = 2, kalai = 2, eduppuOffsetAksharas = 0.5),
+        )
+        assertEquals(90.0, settings.bpm)
+        assertEquals(180.0, settings.effectiveBpm)
+        assertEquals(2, settings.talaPlayback.kalai)
+        assertEquals(0.5, settings.talaPlayback.eduppuOffsetAksharas)
+        assertEquals(32, LayerCompiler.compilePrimary(settings).stepCount)
     }
 
     @Test

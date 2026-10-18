@@ -1,5 +1,6 @@
 package com.baijum.thaalam.domain
 
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.LayerSettings
 import com.baijum.thaalam.data.SoundSet
@@ -22,6 +23,8 @@ data class VoiceStep(
     val isMainBeat: Boolean = false,
     /** Per-step timing offset in milliseconds, including the layer offset. */
     val offsetMs: Double = 0.0,
+    /** Tala hand gesture resolved from the live tala, or [AngaGesture.NONE]. */
+    val gesture: AngaGesture = AngaGesture.NONE,
 )
 
 /**
@@ -49,12 +52,18 @@ data class VoicePattern(
 ) {
     val stepCount: Int get() = steps.size
 
+    /**
+     * Silence between the start of the cycle and the first click. Non-zero for
+     * an eduppu that starts between two tala pulses.
+     */
+    val leadInBeats: Double get() = steps.firstOrNull()?.offsetBeats ?: 0.0
+
     /** Beat distance from [stepIndex] to the next step, wrapping the cycle. */
     fun gapBeatsAfter(stepIndex: Int): Double {
         if (steps.isEmpty() || gaps.isEmpty()) return cycleBeats
         return gaps.getOrElse(stepIndex.coerceIn(gaps.indices)) {
             val current = steps[stepIndex.coerceIn(steps.indices)]
-            cycleBeats - current.offsetBeats
+            cycleBeats - current.offsetBeats + leadInBeats
         }
     }
 

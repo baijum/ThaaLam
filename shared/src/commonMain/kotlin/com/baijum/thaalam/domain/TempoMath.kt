@@ -8,9 +8,17 @@ object TempoMath {
     const val MIN_BPM: Double = 10.0
     const val MAX_BPM: Double = 400.0
 
+    /** Kalam 4x can push the akshara rate above the base-tempo limit. */
+    const val MAX_EFFECTIVE_BPM: Double = 1_600.0
+
+    /** Clamps a *stored* tempo. Kalam is applied after this clamp. */
     fun clampBpm(bpm: Double): Double = bpm.coerceIn(MIN_BPM, MAX_BPM)
 
-    fun secondsPerBeat(bpm: Double): Double = 60.0 / clampBpm(bpm)
+    /** Clamps a *performance* tempo, including kalam. */
+    fun clampEffectiveBpm(bpm: Double): Double =
+        bpm.coerceIn(MIN_BPM, MAX_EFFECTIVE_BPM)
+
+    fun secondsPerBeat(bpm: Double): Double = 60.0 / clampEffectiveBpm(bpm)
 
     fun framesPerBeat(bpm: Double, sampleRate: Int): Double =
         secondsPerBeat(bpm) * sampleRate

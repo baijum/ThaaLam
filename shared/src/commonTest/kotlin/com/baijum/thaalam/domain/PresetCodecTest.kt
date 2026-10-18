@@ -7,6 +7,7 @@ import com.baijum.thaalam.data.MetronomePreset
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.data.SoundSet
 import com.baijum.thaalam.data.Subdivision
+import com.baijum.thaalam.data.TalaPlayback
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -35,6 +36,7 @@ class PresetCodecTest {
         rampEnabled = true,
         rampTargetBpm = 160.0,
         talaId = "hindustani.rupak",
+        talaPlayback = TalaPlayback(kalam = 2, kalai = 2, eduppuOffsetAksharas = -0.5),
     )
 
     @Test
@@ -47,6 +49,8 @@ class PresetCodecTest {
         assertEquals(sample.soundSet, decoded.soundSet)
         assertEquals(sample.gapPlayBars, decoded.gapPlayBars)
         assertEquals(sample.talaId, decoded.talaId)
+        assertEquals(sample.talaPlayback, decoded.talaPlayback)
+        assertEquals(265.0, decoded.effectiveBpm)
     }
 
     @Test
@@ -134,6 +138,16 @@ class PresetCodecTest {
         val decoded = PresetCodec.decodeSettings(raw)
         assertEquals(120.0, decoded.bpm)
         assertTrue(decoded.layers.isEmpty())
+        assertEquals(TalaPlayback(), decoded.talaPlayback)
+    }
+
+    @Test
+    fun `tala json written before kalam still decodes`() {
+        val raw = """{"bpm":80.0,"talaId":"hindustani.teental","meter":{"beatsPerBar":16,"beatUnit":4,"grouping":[4,4,4,4]},"accentPattern":["ACCENT","NORMAL","NORMAL","NORMAL"]}"""
+        val decoded = PresetCodec.decodeSettings(raw)
+        assertEquals("hindustani.teental", decoded.talaId)
+        assertEquals(TalaPlayback(), decoded.talaPlayback)
+        assertEquals(80.0, decoded.effectiveBpm)
     }
 
     @Test

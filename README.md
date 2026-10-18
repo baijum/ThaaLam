@@ -6,14 +6,15 @@ ThaaLam is built with the same technology stack as the sibling Ukulele
 Companion project: Kotlin Multiplatform for the shared domain, Jetpack Compose
 on Android and SwiftUI on iOS. The metronome engine was
 rebuilt around a frame-counting audio clock, then extended with additive meters,
-four-level accents, swing, practice automation and a first-class Carnatic /
-Hindustani tala library.
+four-level accents, swing, practice automation, layered polyrhythms and a
+first-class Carnatic / Hindustani tala practice engine with kalam, kalai,
+eduppu and anga gestures.
 
 <p align="center">
   <img src="docs/screenshots/ios-metronome-dark.png" width="24%" alt="iOS metronome (dark)">
-  <img src="docs/screenshots/ios-tala-detail.png" width="24%" alt="iOS tala detail">
+  <img src="docs/screenshots/ios-tala-playing.png" width="24%" alt="iOS tala playback with kalam and eduppu">
   <img src="docs/screenshots/android-metronome-dark.png" width="24%" alt="Android metronome (dark)">
-  <img src="docs/screenshots/android-tala-playing.png" width="24%" alt="Android tala playback">
+  <img src="docs/screenshots/android-tala-playing.png" width="24%" alt="Android tala playback with kalam and eduppu">
 </p>
 
 <p align="center">
@@ -29,8 +30,9 @@ Hindustani tala library.
 
 ### Time and groove
 
-- **10 – 400 BPM** with fractional values, logarithmic tempo slider, ±1 and
-  half/double buttons, plus a numeric tempo dialog.
+- **10 – 400 base BPM** with fractional values, logarithmic tempo slider, ±1 and
+  half/double buttons, plus a numeric tempo dialog. Kalam can take the effective
+  akshara rate up to 4× the base tempo without losing the base value.
 - **Tap tempo** with an eight-tap rolling average, silence resets and a
   stability readout.
 - **Meters with additive grouping**: 2/4, 3/4, 4/4, 5/4, 6/4, 7/4, 5/8, 6/8,
@@ -43,6 +45,8 @@ Hindustani tala library.
 - **Four accent states per pulse**: accent, normal, ghost and mute, cycled by
   tapping the pulse in the beat map. Any pattern is allowed — including a fully
   muted bar.
+- **Gesture-aware pulse map**: each akshara shows its tala gesture (clap,
+  finger, wave, tali or khali) under the beat number.
 - **Group accents** restores the accents implied by the additive grouping.
 
 ### Layers
@@ -76,6 +80,9 @@ Hindustani tala library.
 - **Procedural click synthesis** on the audio thread: five timbres (Click,
   Woodblock, Beep, Bell, Cowbell), accent-dependent pitch, ghost/subdivision
   velocity and exponential decay. No bundled click samples and no codec latency.
+- **Anga gesture timbres**: clap, finger count, wave, tali and khali colour the
+  click so a laghu or a Hindustani vibhag is audible as a gesture, not a flat
+  run of identical pulses.
 - **Sample-accurate scheduling**: both platforms count rendered audio frames
   instead of relying on timers. Android writes 256-frame buffers to a
   low-latency `AudioTrack`; iOS schedules inside an `AVAudioSourceNode` render
@@ -111,16 +118,38 @@ swing, gap, ramp, haptics) works with it.
   jathis.
 - **Chapu talas**: Misra Chapu, Khanda Chapu and Tisra Chapu.
 - **Hindustani cycles**: Teental, Jhaptal, Rupak, Ektaal, Dadra, Keherwa,
-  Deepchandi and Tilwada, with vibhag markers (`X`, `2`, `3`, `0`) and theka
-  bols where available.
+  Deepchandi, Jhoomra and Tilwada, with vibhag markers (`X`, `2`, `3`, `0`) and
+  theka bols for every cycle where a stable, commonly taught version is known.
 - **Sam, tali and khali** map to accent, accent and ghost. Sam is always the
   first pulse; Rupak correctly starts on khali.
 - **Nadai / gathi** subdivision for Carnatic cycles: Tisra 3, Chatusra 4, Khanda
   5, Misra 7, Sankeerna 9, or none.
+- **Kalam 1× / 2× / 4×** scales the akshara rate while keeping the base tempo;
+  changing it while playing never restarts the cycle.
+- **Kalai 1 / 2** adds a second click inside every akshara and multiplies the
+  chosen nadai.
+- **Eduppu** starts the cycle at sam, a fraction before sam (atita) or after sam
+  (anagata); the count-in is phase-aligned so its final click lands immediately
+  before the requested start point.
+- **Anga gestures** drive both the click timbre and the on-screen symbols:
+  clap, finger count, wave, tali and khali.
+- **Theka display with live bol highlighting**, plus gesture labels on the pulse
+  map and tala cycle.
 - Tala browser with search (names, groupings and bols), tradition filter, anga
   pills, cycle diagram, theka syllables, load and start-in-place.
+- **Practice presets**: any kalam/kalai/eduppu combination can be saved as an
+  ordinary preset from the tala sheet.
 - Tempo is preserved across tala selection, and the active tala is shown on the
   metronome screen with a one-tap exit.
+- **108 Ashtottara talas** are not included yet: the published lists found so
+  far disagree, and the roadmap requires a verified source plus a Carnatic
+  practitioner review before shipping them. The catalogue is data-only, so the
+  set can be added without engine changes once that review exists.
+
+<p align="center">
+  <img src="docs/screenshots/ios-tala-detail.png" width="32%" alt="iOS tala detail with kalam, kalai and eduppu">
+  <img src="docs/screenshots/android-tala-detail.png" width="32%" alt="Android tala detail with kalam, kalai and eduppu">
+</p>
 
 ### Presets and persistence
 
@@ -343,8 +372,9 @@ canonical lengths, khali placement and theka lengths.
 ## Testing
 
 ```bash
-./gradlew :shared:jvmTest      # 101 shared tests: meters, layers, patterns,
-                               # talas, practice logic, tap tempo, presets
+./gradlew :shared:jvmTest      # 127 shared tests: meters, layers, patterns,
+                               # talas, kalam/kalai/eduppu, gestures,
+                               # practice logic, tap tempo, presets
 ./gradlew :app:lintDebug       # Android lint
 ./gradlew :app:assembleDebug
 ```
@@ -352,11 +382,13 @@ canonical lengths, khali placement and theka lengths.
 Manual verification performed during development:
 
 - Android emulator (API 36): clean launch, metronome start/stop, count-in,
-  tala selection and playback, adding/toggling a 5-over-4 layer while playing,
+  tala selection and playback at 2× kalam / 2-kalai / ½-after-sam eduppu,
+  gesture timbres and labels, adding/toggling a 5-over-4 layer while playing,
   composite rings, solo and per-pulse timing, foreground service while
   backgrounded, dark mode.
 - iOS simulator (iPhone 17 Pro): clean launch, metronome playback, tala detail,
-  tala playback, layer picker/editor, composite rings, solo and per-pulse timing,
+  tala playback at 2× kalam / 2-kalai / ½-after-sam eduppu, gesture timbres and
+  labels, layer picker/editor, composite rings, solo and per-pulse timing,
   5-over-4 layer while playing, light/dark mode, audio session start without
   errors.
 
@@ -376,7 +408,8 @@ recommended before shipping for measuring output latency on real devices.
 | Carnatic Suladi Sapta Talas, Chapu, nadai, Hindustani theka | ✅ implemented |
 | Presets, haptics, flash, visual latency calibration | ✅ implemented |
 | Subdivision mixer, polyrhythm / polymeter layers, solo, per-pulse timing | ✅ implemented (v0.2) |
-| Kalam, kalai, eduppu, anga timbres, Ashtottara talas | ◻ planned for v0.3 |
+| Kalam, kalai, eduppu, anga timbres, theka highlighting, practice presets | ✅ implemented (v0.3) |
+| 108 Ashtottara talas | ◻ deferred pending a verified published list and practitioner review |
 | Chained mixed-meter songs, setlists, stage mode, continuous ramps | ◻ planned for v0.4 |
 | Practice log, streaks, tap-accuracy grader, LiveBPM tempo induction | ◻ planned for v0.5 |
 | Drone / temperament / pitch engine, custom samples, recording, localization | ◻ planned for v0.6 |

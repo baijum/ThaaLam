@@ -1,5 +1,6 @@
 package com.baijum.thaalam.domain
 
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.MetronomeSettings
 import kotlin.math.floor
@@ -16,6 +17,7 @@ data class SimulatedTick(
     val audible: Boolean,
     val isCountIn: Boolean,
     val bpm: Double,
+    val gesture: AngaGesture = AngaGesture.NONE,
 )
 
 /**
@@ -41,15 +43,18 @@ object TimingSimulator {
         val layers = LayerCompiler.activeLayers(normalized)
             .map(LayerCompiler::compileLayer)
 
-        var currentBpm = normalized.bpm
+        var currentBpm = normalized.effectiveBpm
         var barIndex = 1
         var primaryPattern = if (normalized.countInBars > 0) countIn else primary
         var pendingBarAdvance = false
+        var pendingNextBar = 1
+        var pendingNextBpm = currentBpm
+        var pendingNextPattern = primaryPattern
         val runtimes = ArrayList<Runtime>(1 + layers.size)
         runtimes += Runtime(
             pattern = primaryPattern,
             stepIndex = 0,
-            nextFrame = 0.0,
+            nextFrame = primaryPattern.leadInBeats * framesPerBeat(currentBpm, sampleRate),
             isPrimary = true,
         )
         layers.forEach { layer ->
@@ -79,16 +84,10 @@ object TimingSimulator {
 
             if (pendingBarAdvance && chosen.isPrimary) {
                 pendingBarAdvance = false
-                barIndex++
-                val nextIsCountIn = barIndex <= normalized.countInBars
-                val nextMusicalBar = max(1, barIndex - normalized.countInBars)
-                currentBpm = if (nextIsCountIn) {
-                    normalized.bpm
-                } else {
-                    PracticeLogic.bpmForBar(normalized, nextMusicalBar, false)
-                }
-                primaryPattern = if (nextIsCountIn) countIn else primary
-                chosen.pattern = primaryPattern
+                barIndex = pendingNextBar
+                currentBpm = pendingNextBpm
+                primaryPattern = pendingNextPattern
+                chosen.pattern = pendingNextPattern
                 chosen.stepIndex = 0
             }
 
@@ -131,6 +130,7 @@ object TimingSimulator {
                 audible = audible,
                 isCountIn = isCountIn,
                 bpm = currentBpm,
+                gesture = if (chosen.isPrimary) step.gesture else AngaGesture.NONE,
             )
 
             val gapBeats = chosen.pattern.gapBeatsAfter(chosen.stepIndex)
@@ -141,8 +141,25 @@ object TimingSimulator {
                 if (chosen.isPrimary) {
                     // Advance the bar only when the next primary tick is due.
                     // Layers in between still belong to the old bar (important
-                    // for count-in and gap boundaries).
+                    // for count-in and gap boundaries). The wrap gap is replaced
+                    // with the next pattern's own lead-in, which may differ when
+                    // the count-in and musical bar have different subdivisions.
                     pendingBarAdvance = true
+                    val boundaryFrame = chosenFrame +
+                        (chosen.pattern.cycleBeats - step.offsetBeats) *
+                        framesPerBeat(currentBpm, sampleRate)
+                    pendingNextBar = barIndex + 1
+                    val nextIsCountIn = pendingNextBar <= normalized.countInBars
+                    val nextMusicalBar = max(1, pendingNextBar - normalized.countInBars)
+                    pendingNextBpm = if (nextIsCountIn) {
+                        normalized.effectiveBpm
+                    } else {
+                        PracticeLogic.bpmForBar(normalized, nextMusicalBar, false)
+                    }
+                    pendingNextPattern = if (nextIsCountIn) countIn else primary
+                    chosen.nextFrame = boundaryFrame +
+                        pendingNextPattern.leadInBeats *
+                        framesPerBeat(pendingNextBpm, sampleRate)
                 }
             }
         }

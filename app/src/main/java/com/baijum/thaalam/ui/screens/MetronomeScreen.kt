@@ -126,10 +126,13 @@ fun MetronomeScreen(
     var editingLayerId by rememberSaveable { mutableStateOf<String?>(null) }
     var practiceExpanded by rememberSaveable { mutableStateOf(false) }
 
-    val displayBpm = if (playback.isPlaying && settings.rampEnabled) {
-        playback.effectiveBpm.takeIf { it > 0.0 } ?: settings.bpm
+    // The large readout is what the player hears: base tempo scaled by kalam
+    // (and by the ramp while playing). The slider and +/- buttons still edit the
+    // base tempo, so switching kalam back to 1x restores it exactly.
+    val displayBpm = if (playback.isPlaying) {
+        playback.effectiveBpm.takeIf { it > 0.0 } ?: settings.effectiveBpm
     } else {
-        settings.bpm
+        settings.effectiveBpm
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -178,6 +181,7 @@ fun MetronomeScreen(
                         onBeatClick = viewModel::cycleBeat,
                         markers = tala?.let { t -> List(t.aksharas) { t.markerAt(it) } } ?: emptyList(),
                         bols = tala?.bols?.takeIf { it.isNotEmpty() } ?: emptyList(),
+                        gestures = tala?.gestures ?: emptyList(),
                     )
                     StatusLine(playback = playback)
                 }
@@ -359,6 +363,18 @@ private fun TempoCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (tala != null && !settings.talaPlayback.isDefault) {
+                    Text(
+                        text = buildString {
+                            append("Base ")
+                            append(TempoMath.formatBpm(settings.bpm))
+                            append(" BPM · ")
+                            append(settings.talaPlayback.summary)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (isPlaying) {
                 Surface(
@@ -403,7 +419,7 @@ private fun TempoCard(
                 .fillMaxWidth()
                 .semantics {
                     contentDescription = "Tempo slider"
-                    stateDescription = "${settings.bpm.roundToInt()} beats per minute"
+                    stateDescription = "Base tempo ${settings.bpm.roundToInt()} beats per minute"
                 },
         )
         Row(
@@ -442,7 +458,19 @@ private fun StatusLine(playback: PlaybackState) {
     val text = when {
         !playback.isPlaying -> "Ready"
         playback.isCountIn -> "Count-in · ${playback.countInBarsRemaining} bar(s) to go"
-        else -> "Bar ${playback.bar} · Pulse ${playback.beat + 1} · ${TempoMath.formatBpm(playback.effectiveBpm)} BPM"
+        else -> buildString {
+            append("Bar ")
+            append(playback.bar)
+            append(" · Pulse ")
+            append(playback.beat + 1)
+            if (playback.gesture != com.baijum.thaalam.data.AngaGesture.NONE) {
+                append(" · ")
+                append(playback.gesture.displayName)
+            }
+            append(" · ")
+            append(TempoMath.formatBpm(playback.effectiveBpm))
+            append(" BPM")
+        }
     }
     Text(
         text = text,

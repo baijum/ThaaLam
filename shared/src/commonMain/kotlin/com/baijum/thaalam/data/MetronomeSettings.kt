@@ -47,8 +47,30 @@ data class MetronomeSettings(
     val rampEveryBars: Int = 4,
     /** Identifier of the tala this configuration came from, if any. */
     val talaId: String? = null,
+    /**
+     * Kalam, kalai and eduppu for the active tala. Inert when [talaId] is null,
+     * so leaving tala mode always returns to a plain metronome.
+     */
+    val talaPlayback: TalaPlayback = TalaPlayback(),
 ) {
     val isGapTraining: Boolean get() = gapPlayBars > 0 && gapSilentBars > 0
+
+    /**
+     * The akshara rate actually sent to the audio engine: the base tempo scaled
+     * by kalam. The base [bpm] is never overwritten, so switching kalam back to
+     * 1x restores the tempo the user typed.
+     */
+    val effectiveBpm: Double
+        get() = (bpm * talaPlayback.kalamFactor).coerceIn(MIN_BPM, MAX_EFFECTIVE_BPM)
+
+    /** Clicks per akshara: nadai/subdivision multiplied by kalai. */
+    val effectiveTicksPerBeat: Int
+        get() = (subdivision.ticksPerBeat * talaPlayback.kalai)
+            .coerceIn(1, MAX_EFFECTIVE_TICKS)
+
+    /** True when a tala is active and the playback options are doing something. */
+    val hasTalaPlayback: Boolean
+        get() = talaId != null && !talaPlayback.isDefault
 
     /** A structurally valid snapshot of these settings. */
     fun normalized(): MetronomeSettings {
@@ -64,6 +86,7 @@ data class MetronomeSettings(
             subdivision = subdivision,
             accentPattern = safePattern,
             layers = LayerSettings.normalizedList(layers),
+            talaPlayback = if (talaId == null) TalaPlayback() else talaPlayback.normalized(),
             swingPercent = swingPercent.coerceIn(MIN_SWING, MAX_SWING),
             volume = volume.coerceIn(0f, 1f),
             countInBars = countInBars.coerceIn(0, 4),
@@ -87,6 +110,12 @@ data class MetronomeSettings(
     companion object {
         const val MIN_BPM: Double = 10.0
         const val MAX_BPM: Double = 400.0
+
+        /** Highest effective tempo with kalam 4x, i.e. 4 × [MAX_BPM]. */
+        const val MAX_EFFECTIVE_BPM: Double = 1_600.0
+
+        /** Highest supported clicks per akshara (nadai 9 × 2-kalai). */
+        const val MAX_EFFECTIVE_TICKS: Int = 18
         const val MIN_SWING: Double = 50.0
         const val MAX_SWING: Double = 75.0
         const val DEFAULT_BPM: Double = 100.0

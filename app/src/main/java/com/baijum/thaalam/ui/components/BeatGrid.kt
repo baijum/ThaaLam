@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.baijum.thaalam.audio.PlaybackState
+import com.baijum.thaalam.data.AngaGesture
 import com.baijum.thaalam.data.BeatKind
 import com.baijum.thaalam.data.MetronomeSettings
 import com.baijum.thaalam.ui.theme.LocalReduceMotion
@@ -59,6 +60,7 @@ fun BeatGrid(
     modifier: Modifier = Modifier,
     markers: List<String?> = emptyList(),
     bols: List<String> = emptyList(),
+    gestures: List<AngaGesture> = emptyList(),
     showLegend: Boolean = true,
 ) {
     val accentPattern = settings.accentPattern
@@ -86,6 +88,7 @@ fun BeatGrid(
                                 isActive = playback.isPlaying && playback.beat == index,
                                 marker = markers.getOrNull(index),
                                 bol = bols.getOrNull(index),
+                                gesture = gestures.getOrNull(index) ?: AngaGesture.NONE,
                                 onClick = { onBeatClick(index) },
                             )
                         }
@@ -106,6 +109,7 @@ private fun BeatPulse(
     isActive: Boolean,
     marker: String?,
     bol: String?,
+    gesture: AngaGesture,
     onClick: () -> Unit,
 ) {
     val reduceMotion = LocalReduceMotion.current
@@ -147,6 +151,7 @@ private fun BeatPulse(
     val descriptor = buildString {
         append("Beat ${index + 1}, ${kind.displayName}")
         bol?.let { append(", $it") }
+        if (gesture != AngaGesture.NONE) append(", ${gesture.displayName}")
         if (isActive) append(", current beat")
     }
 
@@ -197,9 +202,14 @@ private fun BeatPulse(
             )
         }
         Text(
-            text = bol ?: " ",
+            text = bol ?: gesture.shortLabel.ifEmpty { " " },
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (isActive && (bol != null || gesture != AngaGesture.NONE)) {
+                borderColor
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            fontWeight = if (isActive && bol != null) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             fontSize = 9.sp,
             modifier = Modifier
